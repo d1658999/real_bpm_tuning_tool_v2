@@ -47,7 +47,7 @@
         - `open/inductor/capacitor` means open or inductor or capacitor.
         - `connect` means connect to another port, so it does not count in the BOM count.
           - it can automatically show other snp files and let user select which snp and which port to connect to.
-        - `signal` means signal port, so it does not count in the BOM count. it can be assigned to s1/s2/s3/s4.
+        - `signal` means signal port, so it does not count in the BOM count. User can assign it to s1/s2/s3/s4.
             - Maximum support 4 ports for signal, it means s1/s2/s3/s4, the lowest number port is for PAmid port, the higher number port is closer to antenna port. For example, if there are 2 ports, s1 is for PAmid port, s2 is for antenna port. If there are 3 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for antenna port. If there are 4 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for the other PAmid port, s4 is for antenna port. The tool will automatically check the connection setting and give a warning if the setting is invalid.  
       - Port configuration for Freq range: default is by the snp file, which is can be set by user for specific frequency range to see the performance on Smith Chart and frequency response plots. 
       - If user has to point a specific point on Smith Chart as a target, user can set it and enable the feature, default is disabled. When enabled, the tool will try to find the best matching network to reach that point on Smith Chart.
