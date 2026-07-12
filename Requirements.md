@@ -26,7 +26,7 @@
 ### Layout design
 - There are three panels layout 
     - Right panel: 
-      - Smith Chart: It shows the impedance matching network's performance across the frequency range. The Smith Chart should be presented like the format in the link [Smith Chart](https://scikit-rf.readthedocs.io/en/latest/tutorials/Plotting.html#Smith-Chart), please use right format to show the Smith Chart. 
+      - Smith Chart(S11/S22): It shows the impedance matching network's performance across the frequency range. The Smith Chart should be presented like the format in the link [Smith Chart](https://scikit-rf.readthedocs.io/en/latest/tutorials/Plotting.html#Smith-Chart), please use right format to show the Smith Chart. 
       - Frequency response plots, which show the performance across the frequency range:
         - Insertion loss(S21)
         - VSWR(S11/S22)
@@ -50,7 +50,7 @@
         - `signal` means signal port, so it does not count in the BOM count. User can assign it to s1/s2/s3/s4.
             - Maximum support 4 ports for signal, it means s1/s2/s3/s4, the lowest number port is for PAmid port, the higher number port is closer to antenna port. For example, if there are 2 ports assigned, s1 is for PAmid port, s2 is for antenna port. If there are 3 ports assigned, s1 is for PAmid port, s2 is for another PAmid port, s3 is for antenna port. If there are 4 ports assigned, s1 is for PAmid port, s2 is for another PAmid port, s3 is for the other PAmid port, s4 is for antenna port. The tool will automatically check the connection setting and give a warning if the setting is invalid.
       - Port configuration for Freq range: default is by the snp file, which can be set by user for specific frequency range to see the performance on Smith Chart and frequency response plots. 
-      - If user has to point a specific point on Smith Chart as a target, user can set it and enable the feature, default is disabled. When enabled, the tool will try to find the best matching network to reach that point on Smith Chart.
+      - If user has to point a specific point on Smith Chart as a target, user can set it and enable the feature, default is disabled. When enabled, the tool will try to find the best matching network to reach that point on Smith Chart. Please use non-normalized impedance to set the target point on Smith Chart, such as 50 ohm. 
       - If some snp files has more than 2 ports such as 3 ports or 4 ports, user can set freq for each port individually. For example, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 don't care because it is dependent on s1 and s2 if the snp has 3 ports. If the snp has 4 ports, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 is from 0.8GHz to 1.2GHz, s4 don't care because it is dependent on s1, s2 and s3. If ports only has s1 and s2, only s1 can be set, s2 is dependent on s1. what ports are assigned will be depentent on the signal port setting in the middle panel. 
     
     - Left panel: Add/Remove Selected multiple snp files from user uploaded or added
@@ -78,3 +78,6 @@
 
 ### Show the progress of optimization
 - Because the optimization may take a long time, the tool should show the progress of optimization in the GUI, such as a progress bar or a percentage. The tool should also allow user to cancel the optimization if needed.
+
+### Multiple snp files
+- It can allow user to add multiple snp files and run the cascade of all snp files without connecting every snp file necessarily. If user import or add multiple snp files but only use one of the snp files to set signal without connecting to other snp files, which behavior is allowed, but the condition is that the ports of other snp files will set them `open` for all ports. Because user may tentatively want to use the other snp files for future use or for reference, but not for the current optimization. 
