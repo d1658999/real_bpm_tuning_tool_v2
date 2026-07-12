@@ -33,6 +33,7 @@ def network_metrics(
     *,
     component_count: int = 0,
     target: complex | None = None,
+    targets: dict[int, complex] | None = None,
     port_ranges_ghz: list[tuple[float | None, float | None]] | None = None,
 ) -> PerformanceMetrics:
     if network.nports < 2:
@@ -56,13 +57,25 @@ def network_metrics(
 
     masks = [mask_for(index) for index in range(network.nports)]
     vswr_maxima = [_finite_max(vswr[mask, index]) for index, mask in enumerate(masks)]
-    s11 = network.s[masks[0], 0, 0]
-    s22 = network.s[masks[1], 1, 1]
+    reflection_traces = [network.s[mask, index, index] for index, mask in enumerate(masks)]
     s21_mag = np.maximum(magnitude[:, 1, 0], 1e-15)
     insertion_loss = -20.0 * np.log10(s21_mag[masks[0]])
-    traces = np.concatenate((s11, s22))
+    traces = np.concatenate(reflection_traces)
     centroid = np.mean(traces)
-    target_distance = float(np.max(np.abs(traces - target))) if target is not None else 0.0
+    active_targets = dict(targets or {})
+    if target is not None and targets is None:
+        # Preserve the original project-wide target API for integrations that
+        # have not moved to per-signal targets.
+        target_distances = [_finite_max(np.abs(traces - target))]
+    else:
+        if target is not None and 0 not in active_targets:
+            active_targets[0] = target
+        target_distances = [
+            _finite_max(np.abs(reflection_traces[index] - target_value))
+            for index, target_value in active_targets.items()
+            if 0 <= index < len(reflection_traces)
+        ]
+    target_distance = max(target_distances, default=0.0)
     return PerformanceMetrics(
         max_vswr_s11=vswr_maxima[0],
         max_vswr_s22=vswr_maxima[1],

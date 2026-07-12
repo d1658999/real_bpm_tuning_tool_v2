@@ -163,6 +163,9 @@ class CoreAPI:
                             signal=row.get("signal"),
                             start_ghz=row.get("start_ghz"),
                             stop_ghz=row.get("stop_ghz"),
+                            smith_target_enabled=bool(row.get("smith_target_enabled", False)),
+                            smith_target_resistance_ohm=float(row.get("smith_target_resistance_ohm", 50.0)),
+                            smith_target_reactance_ohm=float(row.get("smith_target_reactance_ohm", 0.0)),
                         )
                     )
                 networks.append(network_type(path=str(path), ports=ports))
@@ -242,6 +245,9 @@ class CoreAPI:
                         "signal": port.get("signal"),
                         "start_ghz": port.get("start_ghz"),
                         "stop_ghz": port.get("stop_ghz"),
+                        "smith_target_enabled": bool(port.get("smith_target_enabled", False)),
+                        "smith_target_resistance_ohm": float(port.get("smith_target_resistance_ohm", 50.0)),
+                        "smith_target_reactance_ohm": float(port.get("smith_target_reactance_ohm", 0.0)),
                     }
                 )
         return {
@@ -470,7 +476,19 @@ class FilesPanel(QFrame):
 class PortSettingsPanel(QFrame):
     """Middle panel: editable settings for every port of every input file."""
 
-    HEADERS = ("File", "Port", "Mode", "Measured component", "Connect to", "Signal", "Start GHz", "Stop GHz")
+    HEADERS = (
+        "File",
+        "Port",
+        "Mode",
+        "Measured component",
+        "Connect to",
+        "Signal",
+        "Start GHz",
+        "Stop GHz",
+        "Target",
+        "Target R Ω",
+        "Target X Ω",
+    )
 
     def __init__(self, project_root: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -479,12 +497,16 @@ class PortSettingsPanel(QFrame):
         self.capacitors, self.inductors = _component_catalog(project_root)
         self._paths: list[Path] = []
         self._pending_settings: dict[tuple[str, int], Mapping[str, Any]] = {}
+        self._rebuilding = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(17, 17, 17, 17)
         title = QLabel("Port configuration")
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
-        hint = QLabel("Open is the safe default. Component choices use measured Murata BOM models.")
+        hint = QLabel(
+            "Open is the safe default. Smith-target controls appear only for driven signal ports; "
+            "the highest signal number is the dependent antenna port."
+        )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #7a7a7a;")
         self.table = QTableWidget(0, len(self.HEADERS))
@@ -497,25 +519,9 @@ class PortSettingsPanel(QFrame):
         header.setSectionResizeMode(3, QHeaderView.Stretch)
         header.setSectionResizeMode(4, QHeaderView.Stretch)
 
-        self.target_group = QGroupBox("Smith target (optional)")
-        target_layout = QHBoxLayout(self.target_group)
-        self.target_enabled = QCheckBox("Enable")
-        self.target_resistance = self._target_spin(0.0, 1_000_000.0, 50.0, "Target resistance in ohms")
-        self.target_reactance = self._target_spin(-1_000_000.0, 1_000_000.0, 0.0, "Target reactance in ohms")
-        self.target_resistance.setEnabled(False)
-        self.target_reactance.setEnabled(False)
-        self.target_enabled.toggled.connect(self.target_resistance.setEnabled)
-        self.target_enabled.toggled.connect(self.target_reactance.setEnabled)
-        target_layout.addWidget(self.target_enabled)
-        target_layout.addWidget(QLabel("Resistance (Ω)"))
-        target_layout.addWidget(self.target_resistance)
-        target_layout.addWidget(QLabel("Reactance (Ω)"))
-        target_layout.addWidget(self.target_reactance)
-
         layout.addWidget(title)
         layout.addWidget(hint)
         layout.addWidget(self.table, 1)
-        layout.addWidget(self.target_group)
 
     @staticmethod
     def _target_spin(minimum: float, maximum: float, value: float, tooltip: str) -> QDoubleSpinBox:
@@ -543,6 +549,7 @@ class PortSettingsPanel(QFrame):
         current.update(self._pending_settings)
         self._paths = [Path(path) for path in paths]
         rows = sum(_touchstone_port_count(path) for path in self._paths)
+        self._rebuilding = True
         self.table.setRowCount(rows)
         targets = [f"{path.name}:p{port}" for path in self._paths for port in range(1, _touchstone_port_count(path) + 1)]
         row = 0
@@ -552,6 +559,8 @@ class PortSettingsPanel(QFrame):
                 setting = current.get((relative_key, port), {})
                 self._build_row(row, path, port, targets, setting)
                 row += 1
+        self._rebuilding = False
+        self._refresh_target_controls()
         self._pending_settings = {}
 
     def _build_row(
@@ -584,8 +593,14 @@ class PortSettingsPanel(QFrame):
         connection.addItems([target for target in targets if target != own_target])
         start = self._frequency_spin()
         stop = self._frequency_spin()
+        target_enabled = QCheckBox("Enable")
+        target_resistance = self._target_spin(0.0, 1_000_000.0, 50.0, "Target resistance in ohms")
+        target_reactance = self._target_spin(-1_000_000.0, 1_000_000.0, 0.0, "Target reactance in ohms")
         start.setValue(float(setting.get("start_ghz") or 0.0))
         stop.setValue(float(setting.get("stop_ghz") or 0.0))
+        target_enabled.setChecked(bool(setting.get("smith_target_enabled", False)))
+        target_resistance.setValue(float(setting.get("smith_target_resistance_ohm", 50.0)))
+        target_reactance.setValue(float(setting.get("smith_target_reactance_ohm", 0.0)))
 
         self.table.setCellWidget(row, 2, mode)
         self.table.setCellWidget(row, 3, component)
@@ -593,11 +608,16 @@ class PortSettingsPanel(QFrame):
         self.table.setCellWidget(row, 5, signal)
         self.table.setCellWidget(row, 6, start)
         self.table.setCellWidget(row, 7, stop)
-        mode.currentTextChanged.connect(lambda value, row=row: self._mode_changed(row, value))
+        self.table.setCellWidget(row, 8, target_enabled)
+        self.table.setCellWidget(row, 9, target_resistance)
+        self.table.setCellWidget(row, 10, target_reactance)
         self._mode_changed(row, mode.currentText())
         self._set_combo_data(component, setting.get("component"))
         self._set_combo_value(connection, str(setting.get("connect_to", "—")))
         self._set_combo_value(signal, str(setting.get("signal", "—")))
+        mode.currentTextChanged.connect(lambda value, row=row: self._mode_changed(row, value))
+        signal.currentTextChanged.connect(self._refresh_target_controls)
+        target_enabled.toggled.connect(lambda checked, row=row: self._target_toggled(row, checked))
 
     @staticmethod
     def _set_combo_value(combo: QComboBox, value: str) -> None:
@@ -631,6 +651,51 @@ class PortSettingsPanel(QFrame):
         component.setEnabled(mode in ("inductor", "capacitor", "inductor/capacitor", "open/inductor/capacitor"))
         connection.setEnabled(mode == "connect")
         signal.setEnabled(mode == "signal")
+        if not self._rebuilding:
+            self._refresh_target_controls()
+
+    @pyqtSlot()
+    def _refresh_target_controls(self, *_args: Any) -> None:
+        assignments: list[tuple[int, int]] = []
+        for row in range(self.table.rowCount()):
+            mode = self.table.cellWidget(row, 2)
+            signal = self.table.cellWidget(row, 5)
+            if isinstance(mode, QComboBox) and isinstance(signal, QComboBox):
+                text = signal.currentText()
+                if mode.currentText() == "signal" and text in SIGNALS:
+                    assignments.append((row, int(text[1:])))
+        dependent_number = max((number for _, number in assignments), default=0)
+        enough_signals = len(assignments) >= 2
+        for row in range(self.table.rowCount()):
+            enabled = self.table.cellWidget(row, 8)
+            resistance = self.table.cellWidget(row, 9)
+            reactance = self.table.cellWidget(row, 10)
+            assignment = next((number for target_row, number in assignments if target_row == row), None)
+            eligible = enough_signals and assignment is not None and assignment != dependent_number
+            if not isinstance(enabled, QCheckBox):
+                continue
+            enabled.setProperty("targetEligible", eligible)
+            enabled.setVisible(eligible)
+            if not eligible and enabled.isChecked():
+                enabled.blockSignals(True)
+                enabled.setChecked(False)
+                enabled.blockSignals(False)
+            if isinstance(resistance, QDoubleSpinBox):
+                resistance.setVisible(eligible)
+                resistance.setEnabled(eligible and enabled.isChecked())
+            if isinstance(reactance, QDoubleSpinBox):
+                reactance.setVisible(eligible)
+                reactance.setEnabled(eligible and enabled.isChecked())
+
+    def _target_toggled(self, row: int, checked: bool) -> None:
+        enabled = self.table.cellWidget(row, 8)
+        resistance = self.table.cellWidget(row, 9)
+        reactance = self.table.cellWidget(row, 10)
+        eligible = isinstance(enabled, QCheckBox) and bool(enabled.property("targetEligible"))
+        if isinstance(resistance, QDoubleSpinBox):
+            resistance.setEnabled(eligible and checked)
+        if isinstance(reactance, QDoubleSpinBox):
+            reactance.setEnabled(eligible and checked)
 
     def settings_by_key(self) -> dict[tuple[str, int], Mapping[str, Any]]:
         return {(setting["file"], int(setting["port"])): setting for setting in self.port_settings()}
@@ -648,6 +713,9 @@ class PortSettingsPanel(QFrame):
             signal = self.table.cellWidget(row, 5)
             start = self.table.cellWidget(row, 6)
             stop = self.table.cellWidget(row, 7)
+            target_enabled = self.table.cellWidget(row, 8)
+            target_resistance = self.table.cellWidget(row, 9)
+            target_reactance = self.table.cellWidget(row, 10)
             settings.append(
                 {
                     "file": str(file_item.data(Qt.UserRole)),
@@ -658,15 +726,19 @@ class PortSettingsPanel(QFrame):
                     "signal": None if signal.currentText() == "—" else signal.currentText(),
                     "start_ghz": None if start.value() == 0 else start.value(),
                     "stop_ghz": None if stop.value() == 0 else stop.value(),
+                    "smith_target_enabled": target_enabled.isChecked(),
+                    "smith_target_resistance_ohm": target_resistance.value(),
+                    "smith_target_reactance_ohm": target_reactance.value(),
                 }
             )
         return settings
 
     def target(self) -> dict[str, Any]:
+        """Legacy project-wide target payload; new targets live on signal rows."""
         return {
-            "enabled": self.target_enabled.isChecked(),
-            "resistance_ohm": self.target_resistance.value(),
-            "reactance_ohm": self.target_reactance.value(),
+            "enabled": False,
+            "resistance_ohm": 50.0,
+            "reactance_ohm": 0.0,
             "reference_ohm": 50.0,
         }
 
@@ -677,11 +749,6 @@ class PortSettingsPanel(QFrame):
             for setting in raw_settings
             if isinstance(setting, Mapping)
         }
-        target = payload.get("smith_target", payload.get("target", {}))
-        if isinstance(target, Mapping):
-            self.target_enabled.setChecked(bool(target.get("enabled", False)))
-            self.target_resistance.setValue(float(target.get("resistance_ohm", target.get("real", 50.0))))
-            self.target_reactance.setValue(float(target.get("reactance_ohm", target.get("imag", 0.0))))
 
 
 class PlotPanel(QFrame):
@@ -805,12 +872,14 @@ class PlotPanel(QFrame):
         s11 = s[:, 0, 0]
         s22 = s[:, 1, 1] if s.shape[1] > 1 else np.full_like(s11, np.nan)
         s21 = s[:, 1, 0] if s.shape[1] > 1 else np.full_like(s11, np.nan)
+        reflections = np.stack([s[:, index, index] for index in range(s.shape[1])], axis=1)
         magnitude11 = np.clip(np.abs(s11), 0, 1 - 1e-12)
         magnitude22 = np.clip(np.abs(s22), 0, 1 - 1e-12)
         return {
             "frequency": frequency / 1e9,
             "s11": s11,
             "s22": s22,
+            "reflections": reflections,
             "s21_db": 20 * np.log10(np.maximum(np.abs(s21), tiny)),
             "vswr11": (1 + magnitude11) / (1 - magnitude11),
             "vswr22": (1 + magnitude22) / (1 - magnitude22),
@@ -825,27 +894,32 @@ class PlotPanel(QFrame):
             axis.clear()
         data = self._data
         blue, black = "#0066cc", "#1d1d1f"
+        smith_colors = (blue, black, "#7a7a7a", "#2997ff")
         self._draw_smith_grid(self.smith_axis)
-        self.smith_axis.plot(data["s11"].real, data["s11"].imag, color=blue, linewidth=1.8, label="S11")
-        if np.isfinite(data["s22"]).any():
-            self.smith_axis.plot(data["s22"].real, data["s22"].imag, color=black, linewidth=1.3, label="S22")
+        for index in range(data["reflections"].shape[1]):
+            trace = data["reflections"][:, index]
+            self.smith_axis.plot(
+                trace.real,
+                trace.imag,
+                color=smith_colors[index % len(smith_colors)],
+                linewidth=1.8 if index == 0 else 1.3,
+                label=f"S{index + 1}{index + 1}",
+            )
         config = getattr(result, "config", None)
-        if config is not None and getattr(config, "smith_target_enabled", False):
-            target = getattr(config, "smith_target_gamma", None)
-            if target is not None:
+        if config is not None:
+            target_specs = getattr(config, "smith_targets_by_signal", lambda: {})()
+            for target_index, (signal_name, (impedance, target)) in enumerate(target_specs.items()):
                 self.smith_axis.plot(
                     [target.real],
                     [target.imag],
                     marker="*",
                     markersize=11,
-                    color="#0066cc",
+                    color=smith_colors[target_index % len(smith_colors)],
                     markeredgecolor="white",
-                    label=(
-                        f"Target {config.smith_target_resistance_ohm:g}"
-                        f"{config.smith_target_reactance_ohm:+g}j Ω"
-                    ),
+                    label=f"{signal_name} target {impedance.real:g}{impedance.imag:+g}j Ω",
                 )
-        self.smith_axis.set_title("Smith chart · S11 / S22")
+        smith_labels = " / ".join(f"S{i + 1}{i + 1}" for i in range(data["reflections"].shape[1]))
+        self.smith_axis.set_title(f"Smith chart · {smith_labels}")
         self.smith_axis.legend(frameon=False, fontsize=8, loc="upper right")
         self.axes[0, 1].plot(data["frequency"], data["s21_db"], color=blue, linewidth=1.6, label="S21")
         self.axes[1, 0].plot(data["frequency"], data["vswr11"], color=blue, linewidth=1.6, label="S11")
@@ -904,9 +978,7 @@ class PlotPanel(QFrame):
         frequency = self._data["frequency"]
         if event.inaxes is self.smith_axis:
             point = complex(event.xdata, event.ydata)
-            distance = np.abs(self._data["s11"] - point)
-            if np.isfinite(self._data["s22"]).any():
-                distance = np.minimum(distance, np.abs(self._data["s22"] - point))
+            distance = np.min(np.abs(self._data["reflections"] - point), axis=1)
             index = int(np.nanargmin(distance))
         else:
             if event.xdata is None:
@@ -914,14 +986,14 @@ class PlotPanel(QFrame):
             index = int(np.nanargmin(np.abs(frequency - event.xdata)))
         self._clear_markers()
         marker_frequency = frequency[index]
-        self._marker_artists.append(self.smith_axis.plot(self._data["s11"][index].real, self._data["s11"][index].imag, "o", color="#0066cc", markeredgecolor="white", markersize=7)[0])
-        if np.isfinite(self._data["s22"][index]):
+        marker_colors = ("#0066cc", "#1d1d1f", "#7a7a7a", "#2997ff")
+        for reflection_index, reflection in enumerate(self._data["reflections"][index]):
             self._marker_artists.append(
                 self.smith_axis.plot(
-                    self._data["s22"][index].real,
-                    self._data["s22"][index].imag,
+                    reflection.real,
+                    reflection.imag,
                     "o",
-                    color="#1d1d1f",
+                    color=marker_colors[reflection_index % len(marker_colors)],
                     markeredgecolor="white",
                     markersize=7,
                 )[0]
@@ -1137,6 +1209,7 @@ class MainWindow(QMainWindow):
         if missing:
             raise ValueError("Touchstone file not found: " + missing[0])
         signals: list[str] = []
+        target_signals: list[str] = []
         for setting in payload.get("ports", []):
             mode = setting["mode"]
             if mode == "connect" and not setting.get("connect_to"):
@@ -1145,6 +1218,17 @@ class MainWindow(QMainWindow):
                 if not setting.get("signal"):
                     raise ValueError(f"{Path(setting['file']).name} port {setting['port']} needs s1, s2, s3, or s4.")
                 signals.append(setting["signal"])
+            if setting.get("smith_target_enabled"):
+                if mode != "signal" or not setting.get("signal"):
+                    raise ValueError("Smith targets can be enabled only on assigned signal ports.")
+                resistance = float(setting.get("smith_target_resistance_ohm", 50.0))
+                reactance = float(setting.get("smith_target_reactance_ohm", 0.0))
+                if not np.isfinite(resistance) or not np.isfinite(reactance) or resistance < 0:
+                    raise ValueError(
+                        f"{setting['signal']} Smith target must use finite resistance/reactance in ohms, "
+                        "with resistance zero or greater."
+                    )
+                target_signals.append(setting["signal"])
             start, stop = setting.get("start_ghz"), setting.get("stop_ghz")
             if (start is None) != (stop is None):
                 raise ValueError(f"Set both frequency limits, or leave both Auto, for {Path(setting['file']).name} port {setting['port']}.")
@@ -1152,6 +1236,10 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"Frequency start must be below stop for {Path(setting['file']).name} port {setting['port']}.")
         if len(signals) > 4 or len(signals) != len(set(signals)):
             raise ValueError("Signal assignments must be unique and limited to s1, s2, s3, and s4.")
+        if signals:
+            dependent_signal = max(signals, key=lambda value: int(value[1:]))
+            if dependent_signal in target_signals:
+                raise ValueError(f"{dependent_signal} is the dependent antenna port and cannot have a Smith target.")
         target = payload.get("smith_target", {})
         if target.get("enabled"):
             resistance = float(target.get("resistance_ohm", 50.0))

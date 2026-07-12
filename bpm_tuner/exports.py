@@ -54,11 +54,10 @@ def _plot_result(result: SimulationResult, destination: Path, *, final: bool = F
     network = result.network
     frequency = network.f / 1e9
     fig, axes = plt.subplots(2, 2, figsize=(13, 9), constrained_layout=True)
-    network.plot_s_smith(m=0, n=0, ax=axes[0, 0], label="S11")
-    network.plot_s_smith(m=1, n=1, ax=axes[0, 0], label="S22")
+    for index in range(network.nports):
+        network.plot_s_smith(m=index, n=index, ax=axes[0, 0], label=f"S{index + 1}{index + 1}")
     axes[0, 0].set_title("Smith chart")
-    if result.config.smith_target_enabled:
-        target = result.config.smith_target_gamma
+    for signal_name, (impedance, target) in result.config.smith_targets_by_signal().items():
         axes[0, 0].plot(
             [target.real],
             [target.imag],
@@ -66,10 +65,7 @@ def _plot_result(result: SimulationResult, destination: Path, *, final: bool = F
             markersize=11,
             color="#0066cc",
             markeredgecolor="white",
-            label=(
-                f"Target {result.config.smith_target_resistance_ohm:g}"
-                f"{result.config.smith_target_reactance_ohm:+g}j Ω"
-            ),
+            label=f"{signal_name} target {impedance.real:g}{impedance.imag:+g}j Ω",
         )
         axes[0, 0].legend()
     if final:
@@ -184,6 +180,21 @@ def export_optimization_report(report: OptimizationReport, destination: str | Pa
             selected_parts += 1
     if not selected_parts:
         lines.append("| - | - | open/short only | - | - |")
+    lines += [
+        "",
+        "## Enabled Smith targets",
+        "",
+        "| Signal | Target impedance | Target Γ |",
+        "|---|---:|---:|",
+    ]
+    selected_targets = selected.config.smith_targets_by_signal()
+    for signal_name, (impedance, gamma) in selected_targets.items():
+        lines.append(
+            f"| {signal_name} | {impedance.real:g}{impedance.imag:+g}j Ω | "
+            f"{gamma.real:.5f}{gamma.imag:+.5f}j |"
+        )
+    if not selected_targets:
+        lines.append("| - | Disabled | - |")
     lines += [
         "",
         "## Production tolerance note",

@@ -33,12 +33,25 @@ class PortConfig:
     signal: str | None = None
     start_ghz: float | None = None
     stop_ghz: float | None = None
+    smith_target_enabled: bool = False
+    smith_target_resistance_ohm: float = 50.0
+    smith_target_reactance_ohm: float = 0.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PortConfig":
         value = dict(data)
         value["mode"] = ConnectionType(value.get("mode", "open"))
         return cls(**value)
+
+    @property
+    def smith_target_impedance(self) -> complex:
+        return complex(self.smith_target_resistance_ohm, self.smith_target_reactance_ohm)
+
+    def smith_target_gamma(self, reference_ohm: float = 50.0) -> complex:
+        denominator = self.smith_target_impedance + reference_ohm
+        if abs(denominator) <= 1e-15:
+            raise ConfigError("Smith target impedance cannot equal negative reference impedance.")
+        return (self.smith_target_impedance - reference_ohm) / denominator
 
 
 @dataclass
@@ -107,9 +120,14 @@ class ProjectConfig:
                 raise ConfigError(f"{name}: ports must be numbered consecutively from 1.")
 
         signals: list[str] = []
+        signal_ports: list[PortConfig] = []
         for network in self.networks:
             source = Path(network.path).name
             for port in network.ports:
+                if port.smith_target_enabled and port.mode != ConnectionType.SIGNAL:
+                    raise ConfigError(
+                        f"{source} port {port.port}: Smith targets can be enabled only on signal ports."
+                    )
                 if (port.start_ghz is None) != (port.stop_ghz is None):
                     raise ConfigError(f"{source} port {port.port}: set both frequency limits.")
                 if port.start_ghz is not None and port.start_ghz >= port.stop_ghz:
@@ -118,6 +136,7 @@ class ProjectConfig:
                     if not port.signal:
                         raise ConfigError(f"{source} port {port.port}: select s1, s2, s3, or s4.")
                     signals.append(port.signal.lower())
+                    signal_ports.append(port)
                 elif port.mode == ConnectionType.CONNECT:
                     if not port.connect_network or port.connect_port is None:
                         raise ConfigError(f"{source} port {port.port}: select a destination network and port.")
@@ -150,6 +169,19 @@ class ProjectConfig:
         expected = [f"s{i}" for i in range(1, len(signals) + 1)]
         if sorted(signals) != expected:
             raise ConfigError(f"Signal names must be consecutive: {', '.join(expected)}.")
+
+        dependent_signal = expected[-1]
+        for port in signal_ports:
+            if port.smith_target_enabled and (port.signal or "").lower() == dependent_signal:
+                raise ConfigError(
+                    f"{dependent_signal} is the dependent antenna port and cannot have an independent Smith target."
+                )
+            if port.smith_target_enabled:
+                values = (port.smith_target_resistance_ohm, port.smith_target_reactance_ohm)
+                if not all(math.isfinite(value) for value in values):
+                    raise ConfigError(f"{port.signal} Smith target impedance values must be finite.")
+                if port.smith_target_resistance_ohm < 0:
+                    raise ConfigError(f"{port.signal} Smith target resistance must be zero or greater.")
 
         active_names = self.active_network_names()
         for network in self.networks:
@@ -187,6 +219,26 @@ class ProjectConfig:
             active.add(name)
             pending.extend(edges[name] - active)
         return active
+
+    def signal_ports(self) -> list[PortConfig]:
+        return sorted(
+            (port for network in self.networks for port in network.ports if port.mode == ConnectionType.SIGNAL),
+            key=lambda port: port.signal or "",
+        )
+
+    def smith_targets_by_signal(self) -> dict[str, tuple[complex, complex]]:
+        """Map driven signal names to (physical impedance, reflection coefficient)."""
+        ports = self.signal_ports()
+        targets = {
+            port.signal or "": (port.smith_target_impedance, port.smith_target_gamma(self.smith_reference_ohm))
+            for port in ports[:-1]
+            if port.smith_target_enabled
+        }
+        # Backward-compatible fallback for configurations saved before targets
+        # became per-signal settings.
+        if not targets and self.smith_target_enabled and ports:
+            targets[ports[0].signal or "s1"] = (self.smith_target_impedance, self.smith_target_gamma)
+        return targets
 
     @property
     def smith_target_impedance(self) -> complex:
@@ -246,7 +298,19 @@ class ProjectConfig:
             value["smith_target_resistance_ohm"] = float(impedance.real)
             value["smith_target_reactance_ohm"] = float(impedance.imag)
         allowed = {item.name for item in fields(cls)}
-        return cls(**{key: item for key, item in value.items() if key in allowed})
+        project = cls(**{key: item for key, item in value.items() if key in allowed})
+        # Move the former project-wide target to s1 so the new GUI exposes it
+        # as an individual driven-port target.
+        if project.smith_target_enabled and not any(
+            port.smith_target_enabled for port in project.signal_ports()
+        ):
+            signal_ports = project.signal_ports()
+            if signal_ports:
+                signal_ports[0].smith_target_enabled = True
+                signal_ports[0].smith_target_resistance_ohm = project.smith_target_resistance_ohm
+                signal_ports[0].smith_target_reactance_ohm = project.smith_target_reactance_ohm
+                project.smith_target_enabled = False
+        return project
 
     @classmethod
     def load(cls, path: str | Path) -> "ProjectConfig":

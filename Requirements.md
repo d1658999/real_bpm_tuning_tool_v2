@@ -81,3 +81,9 @@
 
 ### Multiple snp files
 - It can allow user to add multiple snp files and run the cascade of all snp files without connecting every snp file necessarily. If user import or add multiple snp files but only use one of the snp files to set signal without connecting to other snp files, which behavior is allowed, but the condition is that the ports of other snp files will set them `open` for all ports. Because user may tentatively want to use the other snp files for future use or for reference, but not for the current optimization. 
+
+### Smith Chart target point
+- It can allow user to set a specific point on Smith Chart as a target, and the tool will try to find the best matching network to reach that point on Smith Chart by port configuration and frequency range setting. 
+- For two ports, the target point is for s1 port, and s2 port is dependent on s1 port. For three ports, the target point is for s1 port and s2, and s3 port is dependent on s1 and s2 ports. For four ports, the target point is for s1 port, s2 port, and s3 port, and s4 port is dependent on s1, s2, and s3 ports.
+- Individual ports has their own `Enable` checkbox to enable or disable the target point feature, default is disabled. 
+- It is dynamic show the target point for ports. For example, it only two ports, just only show s1 port target point, s2 port is dependent on s1 port. If three ports, show s1 and s2 port target point, s3 port is dependent on s1 and s2 ports. If four ports, show s1, s2, and s3 port target point, s4 port is dependent on s1, s2, and s3 ports.

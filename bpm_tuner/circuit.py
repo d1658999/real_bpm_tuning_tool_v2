@@ -175,12 +175,18 @@ class CircuitEngine:
             for port in item.ports
             if port.mode not in (ConnectionType.OPEN, ConnectionType.SHORT, ConnectionType.CONNECT, ConnectionType.SIGNAL)
         )
-        target = config.smith_target_gamma if config.smith_target_enabled else None
-        port_ranges = [(port.start_ghz, port.stop_ghz) for _, port in sorted(signal_ports, key=lambda pair: pair[1].signal or "")]
+        ordered_signal_ports = sorted(signal_ports, key=lambda pair: pair[1].signal or "")
+        target_specs = config.smith_targets_by_signal()
+        targets = {
+            index: target_specs[port.signal or ""][1]
+            for index, (_, port) in enumerate(ordered_signal_ports)
+            if (port.signal or "") in target_specs
+        }
+        port_ranges = [(port.start_ghz, port.stop_ghz) for _, port in ordered_signal_ports]
         metrics = network_metrics(
             output,
             component_count=component_count,
-            target=target,
+            targets=targets,
             port_ranges_ghz=port_ranges,
         )
         return SimulationResult(output, metrics, deepcopy(config), signal_names, inactive_names)

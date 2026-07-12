@@ -21,7 +21,7 @@ bpm-tuner --gui
 
 1. Add two or more `.sNp` files in the left panel.
 2. Assign every active port in the middle panel. Connections must be reciprocal, and signal names must be unique and consecutive from `s1` (two to four total). A file that is not yet part of the circuit may remain in the project when every one of its ports is `open`; it is ignored by cascade and optimization.
-3. Leave `open/inductor/capacitor` unselected to let optimization choose from the measured BOM. The Smith target is off by default. When enabled, enter physical resistance and reactance in ohms—for example, `50 + j0 Ω` targets the center of a 50-ohm Smith chart.
+3. Leave `open/inductor/capacitor` unselected to let optimization choose from the measured BOM. Smith targets are off by default and appear on each driven signal row: `s1` for a two-port result, `s1`/`s2` for three ports, and `s1`/`s2`/`s3` for four ports. The final signal is the dependent antenna port. Enable targets individually and enter physical resistance/reactance in ohms—for example, `50 + j0 Ω` targets the center of a 50-ohm Smith chart.
 4. Use **Run Cascade** to simulate the selected configuration or **Run Optimization** to run all five strategies. Optimization progress and cancellation are shown at the top.
 5. Save/load JSON configurations, export the cascaded Touchstone network and S21 CSV, or save the combined plot.
 
