@@ -26,7 +26,7 @@
 ### Layout design
 - There are three panels layout 
     - Right panel: 
-      - Smith Chart: It shows the impedance matching network's performance across the frequency range. The Smith Chart should be presented like the format in the link [Smith Chart](https://scikit-rf.readthedocs.io/en/latest/tutorials/Plotting.html#Smith-Chart)
+      - Smith Chart: It shows the impedance matching network's performance across the frequency range. The Smith Chart should be presented like the format in the link [Smith Chart](https://scikit-rf.readthedocs.io/en/latest/tutorials/Plotting.html#Smith-Chart), please use right format to show the Smith Chart. 
       - Frequency response plots, which show the performance across the frequency range:
         - Insertion loss(S21)
         - VSWR(S11/S22)
@@ -34,7 +34,7 @@
       - Reset Original button: It will reset the Smith Chart and frequency response plots to the original state.
       - Zoom In/Out button: It will zoom in/out the Smith Chart and frequency response plots.
       - Move button: It will move the Smith Chart and frequency response plots.
-      - Marker button: It will mark the point on the Smith Chart and frequency response plots.
+      - Marker button: It will mark the point on the Smith Chart and frequency response plots if possible.
       - Save figures button: It will save the Smith Chart and frequency response plots to a file by .png and combine them together.
 
     - Middle panel: Connection setting for the every port of every snp file:
@@ -51,7 +51,7 @@
             - Maximum support 4 ports for signal, it means s1/s2/s3/s4, the lowest number port is for PAmid port, the higher number port is closer to antenna port. For example, if there are 2 ports, s1 is for PAmid port, s2 is for antenna port. If there are 3 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for antenna port. If there are 4 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for the other PAmid port, s4 is for antenna port. The tool will automatically check the connection setting and give a warning if the setting is invalid.  
       - Port configuration for Freq range: default is by the snp file, which is can be set by user for specific frequency range to see the performance on Smith Chart and frequency response plots. 
       - If user has to point a specific point on Smith Chart as a target, user can set it and enable the feature, default is disabled. When enabled, the tool will try to find the best matching network to reach that point on Smith Chart.
-      - If some snp files has more than 2 ports such as 3 ports or 4 ports, user can set freq for each port individually. For example, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 don't care because it is dependent on s1 and s2 if the snp has 3 ports. If the snp has 4 ports, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 is from 0.8GHz to 1.2GHz, s4 don't care because it is dependent on s1, s2 and s3.
+      - If some snp files has more than 2 ports such as 3 ports or 4 ports, user can set freq for each port individually. For example, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 don't care because it is dependent on s1 and s2 if the snp has 3 ports. If the snp has 4 ports, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 is from 0.8GHz to 1.2GHz, s4 don't care because it is dependent on s1, s2 and s3. If ports only has s1 and s2, only s1 can be set, s2 is dependent on s1.
     
     - Left panel: Add/Remove Selected multiple snp files from user uploaded or added
     
@@ -71,3 +71,6 @@
 
 ### Design style
 - follow the design style in @DESIGN-apple.md
+
+### Calculation and Algorithm
+- If some calculations or algorithms are complex, it should use Rust not Python for performance optimization and speed up those complicated math calculation and then export to Python main coding. The tool will use Python for higher-level logic and integration and GUI.

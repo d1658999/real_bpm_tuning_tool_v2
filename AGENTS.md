@@ -10,7 +10,7 @@
 - It MUST follow the provided guidelines and best practices for documentation, ensuring that it is well-organized, properly formatted, and free of errors.
 
 ## Programming Language
-- Use Python and Rust 
+- Use Python and Rust, cannot use JavaScript
 - If some calculations or algorithms are complex, it should use Rust for performance optimization, while using Python for higher-level logic and integration and GUI.
 
 ## Role 
