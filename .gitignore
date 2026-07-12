@@ -6,3 +6,7 @@ __pycache__/
 native/target/
 outputs/
 bpm_tuner.log
+/tests
+/outputs_*
+/rust_optimizer/examples
+/real_bpm_tuning_tool.egg-info
