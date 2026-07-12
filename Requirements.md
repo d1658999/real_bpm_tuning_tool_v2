@@ -46,8 +46,9 @@
         - `inductor/capacitor` means inductor or capacitor.
         - `open/inductor/capacitor` means open or inductor or capacitor.
         - `connect` means connect to another port, so it does not count in the BOM count.
-        - `signal` means signal port, so it does not count in the BOM count.
-      - Maximum support 4 ports for signal, it means s1/s2/s3/s4, the lowest number port is for PAmid port, the higher number port is closer to antenna port. For example, if there are 2 ports, s1 is for PAmid port, s2 is for antenna port. If there are 3 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for antenna port. If there are 4 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for the other PAmid port, s4 is for antenna port. The tool will automatically check the connection setting and give a warning if the setting is invalid.  
+          - it can automatically show other snp files and let user select which snp and which port to connect to.
+        - `signal` means signal port, so it does not count in the BOM count. it can be assigned to s1/s2/s3/s4.
+            - Maximum support 4 ports for signal, it means s1/s2/s3/s4, the lowest number port is for PAmid port, the higher number port is closer to antenna port. For example, if there are 2 ports, s1 is for PAmid port, s2 is for antenna port. If there are 3 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for antenna port. If there are 4 ports, s1 is for PAmid port, s2 is for another PAmid port, s3 is for the other PAmid port, s4 is for antenna port. The tool will automatically check the connection setting and give a warning if the setting is invalid.  
       - Port configuration for Freq range: default is by the snp file, which is can be set by user for specific frequency range to see the performance on Smith Chart and frequency response plots. 
       - If user has to point a specific point on Smith Chart as a target, user can set it and enable the feature, default is disabled. When enabled, the tool will try to find the best matching network to reach that point on Smith Chart.
       - If some snp files has more than 2 ports such as 3 ports or 4 ports, user can set freq for each port individually. For example, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 don't care because it is dependent on s1 and s2 if the snp has 3 ports. If the snp has 4 ports, s1 is from 3.3GHz to 5GHz, s2 is from 1.4GHz to 2.7GHz, s3 is from 0.8GHz to 1.2GHz, s4 don't care because it is dependent on s1, s2 and s3.
@@ -62,10 +63,11 @@
       - `Export SNP` button: It will export the present cascade snp files to a folder by .snp.
       - `Export IL CSV` button: It will export the present cascade insertion loss to a file by .csv.
     
-### Feautures added or detailed
-- If I have to point a specific point on Smith Chart as a target. I can set it and enable the feature, default is disabled. When enabled, the tool will try to find the best matching network to reach that point on Smith Chart.
-
-
+### Real BOM 
+- The components of real put in:
+  - Capacitor: Murata GJM02 series at `Capacitors_BOM` folder
+  - Inductor: Murata LQP02TQ series at `Inductors_BOM` folder
+- When selecting those components, the tool can show their real value.
 
 ### Design style
-- follow the design style in @DESIGN-nintendo-2001.md
+- follow the design style in @DESIGN-apple.md
