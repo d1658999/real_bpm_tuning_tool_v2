@@ -1,0 +1,28 @@
+model = "gpt-5.6-terra"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"   # 只能改工作區，不能亂碰整台機器
+model_instructions_file = "../AGENTS.md"
+model_reasoning_effort = "medium"  # 中等強度，夠用就好
+model_context_window = 272000
+model_auto_compact_token_limit = 240000
+
+[sandbox_workspace_write]
+network_access = true             # 預設斷網（安全）。要裝套件再改 true，或用白名單
+writable_roots = []                # 需要多開放幾個資料夾就列在這
+
+# 難題才切這個：codex --profile hard
+[profiles.hard]
+model = "gpt-5.6-sol"              # 最強檔留給硬骨頭
+model_reasoning_effort = "high"    # 難題才開高強度
+approval_policy = "on-request"
+
+# 背景全自動，只在容器／VM 用：codex --profile yolo
+[profiles.yolo]
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 1800
