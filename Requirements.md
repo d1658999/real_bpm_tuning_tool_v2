@@ -73,4 +73,8 @@
 - follow the design style in @DESIGN-apple.md
 
 ### Calculation and Algorithm
-- If some calculations or algorithms are complex, it should use Rust not Python for performance optimization and speed up those complicated math calculation and then export to Python main coding. The tool will use Python for higher-level logic and integration and GUI.
+- If some calculations or algorithms are complex, it MUST use Rust not Python for performance optimization and speed up those complicated math calculation and then export to Python main coding. The tool will use Python for higher-level logic and integration and GUI.
+- `Run optimization` shall use Rust to speed up the calculation and optimization.
+
+### Show the progress of optimization
+- Because the optimization may take a long time, the tool should show the progress of optimization in the GUI, such as a progress bar or a percentage. The tool should also allow user to cancel the optimization if needed.
