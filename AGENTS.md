@@ -1,5 +1,6 @@
 ## Virtual Environment Building
 - To build a virtual environment for your project according to language and framework requirements
+- Don't add or modify any files in the virtual environment without explicit permission from the user. But if just installing dependencies, it is allowed to modify the virtual environment.
 
 ## Workspace permissions
 - Only work and operate within the permissions granted to your workspace. Avoid accessing or modifying files outside of your designated workspace.
