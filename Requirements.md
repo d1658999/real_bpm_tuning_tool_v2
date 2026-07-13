@@ -90,3 +90,28 @@
 
 ### Fleet requirements
 - After `Run optimization`, the results from agents SHALL be saved to .json and .png files like example folder `outputs_port_target_optimization`. The result folder name is `Fleet_results_YYYYMMDD_HHMMSS` 
+
+#### Production risk score
+- The fleet SHALL calculate `risk_score` using the algorithm in `fleet_optimizer.py::_compute_risk_scores`.
+- A lower `risk_score` indicates a lower-risk result. The result with the lowest score SHALL be selected as the fleet winner.
+- Each metric SHALL be min-max normalized across all completed agent results before its weight is applied:
+
+  `normalize(x_i) = (x_i - min(x)) / (max(x) - min(x))`
+
+- If every agent has the same value for a metric (`max(x) == min(x)`), the normalized value for that metric SHALL be `0.0` for every agent.
+- The score SHALL use the following weights, which sum to `1.00`:
+
+| Metric | Weight | Value used by the score |
+| --- | ---: | --- |
+| Worst target error under +/-5% component tolerance | 30% (`0.30`) | `target_error_5pct_max`; fall back to nominal `target_error_max` when the tolerance result is unavailable or zero |
+| Component count | 25% (`0.25`) | `component_count` |
+| VSWR sensitivity | 20% (`0.20`) | `vswr_sensitivity` |
+| Worst insertion loss under +/-5% component tolerance | 15% (`0.15`) | Absolute value of `worst_il_5pct_db` |
+| Target-error spread | 10% (`0.10`) | `target_error_spread`; fall back to `vswr_spread` when target-error spread is unavailable or zero |
+
+- The required formula is:
+
+  `risk_score = 0.30 * normalize(worst_target_error_5pct) + 0.25 * normalize(component_count) + 0.20 * normalize(vswr_sensitivity) + 0.15 * normalize(abs(worst_il_5pct_db)) + 0.10 * normalize(target_error_spread)`
+
+- The final `risk_score` SHALL be rounded to four decimal places.
+- The +/-5% component-tolerance evaluation is a conservative production-risk proxy; it SHALL NOT be presented as a measured yield, defect rate, or statistical process-capability result.
