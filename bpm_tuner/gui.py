@@ -1329,7 +1329,19 @@ class MainWindow(QMainWindow):
                 self._show_error("Optimization plot unavailable", exc)
         self.progress_bar.setValue(100)
         self.status_label.setText("Optimization complete")
-        QMessageBox.information(self, "Optimization complete", "The best production-aware solution is ready.")
+        
+        saved_dir = None
+        if report is not None:
+            from collections.abc import Mapping
+            if isinstance(report, Mapping):
+                saved_dir = report.get("saved_dir")
+            else:
+                saved_dir = getattr(report, "saved_dir", None)
+
+        msg = "The best production-aware solution is ready."
+        if saved_dir:
+            msg += f"\n\nFleet results saved to folder:\n{saved_dir}"
+        QMessageBox.information(self, "Optimization complete", msg)
 
     @staticmethod
     def _result_from_report(report: Any) -> Any:

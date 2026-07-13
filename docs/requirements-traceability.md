@@ -71,6 +71,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | O-04 | Final decision plots include dotted VSWR=2 circle | Final dashboard adds constant-|Gamma| = 1/3 circle | Figure object or image review |
 | O-05 | Written Markdown report identifies selected agent, exact parts/values and decision rationale | Report generator consumes comparison and winning result | Golden-section/schema assertions and human review |
 | O-06 | ±5% mass-production analysis | Perturb component values or use an explicitly labelled conservative proxy | Statistical/property tests where implemented; limitation must appear in report |
+| O-07 | Fleet requirements output directory | Save agent optimization results to a timestamped folder `Fleet_results_YYYYMMDD_HHMMSS` containing all agents' JSON/PNG data, comparison plots, and report | Exporter saves directly to a dynamic subdirectory under the project root | Integration test checks timestamped folder creation and file presence |
 
 ## Visual design
 

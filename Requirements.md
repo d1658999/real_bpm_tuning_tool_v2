@@ -87,3 +87,6 @@
 - For two ports, the target point is for s1 port, and s2 port is dependent on s1 port. For three ports, the target point is for s1 port and s2, and s3 port is dependent on s1 and s2 ports. For four ports, the target point is for s1 port, s2 port, and s3 port, and s4 port is dependent on s1, s2, and s3 ports.
 - Individual ports has their own `Enable` checkbox to enable or disable the target point feature, default is disabled. 
 - It is dynamic show the target point for ports. For example, it only two ports, just only show s1 port target point, s2 port is dependent on s1 port. If three ports, show s1 and s2 port target point, s3 port is dependent on s1 and s2 ports. If four ports, show s1, s2, and s3 port target point, s4 port is dependent on s1, s2, and s3 ports.
+
+### Fleet requirements
+- After `Run optimization`, the results from agents SHALL be saved to .json and .png files like example folder `outputs_port_target_optimization`. The result folder name is `Fleet_results_YYYYMMDD_HHMMSS` 

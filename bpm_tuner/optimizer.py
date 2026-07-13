@@ -49,6 +49,7 @@ class AgentResult:
 class OptimizationReport:
     agents: list[AgentResult]
     selected: AgentResult
+    saved_dir: Path | None = None
 
     @property
     def result(self) -> SimulationResult:
@@ -58,6 +59,7 @@ class OptimizationReport:
 class FleetOptimizer:
     def __init__(self, root: str | Path):
         self.root = Path(root).resolve()
+        self.output_root = self.root
         self.engine = CircuitEngine(self.root)
         self.ranker = RustOptimizer(self.root)
         self.bom = load_bom(self.root)
@@ -172,7 +174,16 @@ class FleetOptimizer:
         )
         if progress_callback:
             progress_callback(100, f"Principal_engineer_Agent selected {selected.agent_name}")
-        return OptimizationReport(agent_results, selected)
+
+        from datetime import datetime
+        from .exports import export_optimization_report
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        saved_dir = self.output_root / f"Fleet_results_{timestamp}"
+        report = OptimizationReport(agent_results, selected, saved_dir=saved_dir)
+        export_optimization_report(report, saved_dir)
+
+        return report
 
 
 # Compatibility name used by earlier GUI implementations.

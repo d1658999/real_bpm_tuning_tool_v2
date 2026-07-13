@@ -46,4 +46,6 @@ def main(argv: list[str] | None = None) -> int:
     report = FleetOptimizer(root).run(config, progress_callback=progress)
     path = export_optimization_report(report, args.output)
     print(f"Selected {report.selected.agent_name} ({report.selected.strategy}). Report: {path}")
+    if getattr(report, "saved_dir", None):
+        print(f"Fleet results saved to: {report.saved_dir}")
     return 0
