@@ -112,6 +112,22 @@ def export_optimization_report(report: OptimizationReport, destination: str | Pa
         payload["agent"] = agent.agent_name
         payload["strategy"] = agent.strategy
         payload["metrics"] = asdict(agent.metrics)
+        payload["metrics"].update(
+            {
+                "target_error_max": agent.metrics.target_distance,
+                "worst_il_5pct_db": (
+                    agent.metrics.tolerance_il_db
+                    if agent.metrics.tolerance_il_db is not None
+                    else agent.metrics.worst_il_db
+                ),
+                "vswr_5pct_max": (
+                    agent.metrics.tolerance_vswr
+                    if agent.metrics.tolerance_vswr is not None
+                    else agent.metrics.worst_vswr
+                ),
+                "risk_score": agent.metrics.production_risk,
+            }
+        )
         import json
 
         (destination / f"{slug}.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -145,20 +161,28 @@ def export_optimization_report(report: OptimizationReport, destination: str | Pa
         f"Selected **{selected.agent_name}** (`{selected.strategy}`) with production-risk score "
         f"**{selected.metrics.production_risk:.4f}**.",
         "",
-        "The decision minimizes the required normalized risk formula across all five engineering "
-        "strategies, including ±5% electrical sensitivity, BOM count, insertion loss, and S11/S22 balance.",
+        "The decision minimizes the required target-aware normalized risk formula across all five "
+        "engineering strategies, including ±5% target error, BOM count, VSWR sensitivity, insertion "
+        "loss, and target-error spread.",
         "",
         "## Five-agent comparison",
         "",
-        "| Agent | Strategy | VSWR S11 | VSWR S22 | Worst IL dB | BOM | VSWR ±5% | Risk |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "| Agent | Strategy | VSWR S11 | VSWR S22 | Target error | Worst IL dB | BOM | "
+        "VSWR ±5% | Target error ±5% | Risk |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for agent in report.agents:
         m = agent.metrics
+        tolerance_vswr = m.tolerance_vswr if m.tolerance_vswr is not None else m.worst_vswr
+        tolerance_target = (
+            m.target_error_5pct_max
+            if m.target_error_5pct_max not in (None, 0.0)
+            else m.target_distance
+        )
         lines.append(
             f"| {agent.agent_name} | {agent.strategy} | {m.max_vswr_s11:.3f} | {m.max_vswr_s22:.3f} | "
-            f"{m.worst_il_db:.3f} | {m.component_count} | {(m.tolerance_vswr or m.worst_vswr):.3f} | "
-            f"{m.production_risk:.4f} |"
+            f"{m.target_distance:.4f} | {m.worst_il_db:.3f} | {m.component_count} | "
+            f"{tolerance_vswr:.3f} | {tolerance_target:.4f} | {m.production_risk:.4f} |"
         )
     lines += [
         "",

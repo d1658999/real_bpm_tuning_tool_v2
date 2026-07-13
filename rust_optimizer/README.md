@@ -1,9 +1,9 @@
-# BPM Ranking Optimizer
+# BPM Exhaustive RF Optimizer
 
-A dependency-free Rust CLI that ranks already-evaluated impedance-matching
-candidates for the Python BPM tuning application. Rust performs the hot ranking
-step; the Python GUI remains responsible for RF simulation, progress reporting,
-and process cancellation.
+A dependency-free Rust CLI that performs the exhaustive S-matrix termination
+sweep and ranks target-aware impedance-matching candidates for the Python BPM
+tuning application. The sweep uses native worker threads and the rank-one port
+termination equation adopted from `99_ reference/lib.rs`.
 
 ## Build and test
 
@@ -26,27 +26,39 @@ bpm-ranking-optimizer <strategy> <input.tsv>
 The TSV may include this exact header (recommended) or contain data rows only:
 
 ```text
-candidate_id	bom_count	max_vswr	worst_il_db	smith_radius	target_distance
-network-001	2	1.25	0.35	0.12	0.08
-network-002	3	1.10	0.48	0.09	0.04
+candidate_id	bom_count	vswr_non_ant	vswr_ant	worst_il_db	smith_score	target_non_ant	target_ant	target_spread
+network-001	2	1.25	1.30	0.35	0.12	0.08	0.09	0.01
+network-002	3	1.10	1.20	0.48	0.09	0.04	0.05	0.01
 ```
 
 `worst_il_db` is the positive insertion-loss magnitude, so a lower number is
-better. All four floating-point metrics must be finite and non-negative;
+better. All floating-point metrics must be finite and non-negative;
 candidate IDs must be non-empty and unique. On success stdout contains only the
 winning `candidate_id`. Invalid arguments, files, rows, or metrics produce a
 clear error on stderr and a non-zero exit code.
 
-Strategies:
+Canonical strategies:
 
-- `minimum_bom`: among candidates with `max_vswr <= 1.4`, minimize BOM count;
-  if none pass, return the candidate with the lowest VSWR.
-- `balanced`: normalize each metric over the candidate set, then weight VSWR
-  40%, insertion loss 35%, Smith radius 10%, target distance 10%, and BOM 5%.
-- `lowest_vswr`: minimize worst-case VSWR.
-- `tightest_contour`: minimize Smith-chart contour radius, then target distance.
-- `lowest_insertion_loss`: minimize worst-case insertion-loss magnitude.
+- `minimum_bom`: keep candidates within 10% of the best non-antenna target
+  error, then minimize BOM count.
+- `balanced`: minimize normalized peak target error plus normalized insertion
+  loss.
+- `minimum_target`: minimize non-antenna target error, then antenna target error.
+- `smith_contour`: minimize the target-centred Smith score.
+- `minimum_insertion_loss`: apply the reference target gate, then minimize
+  insertion-loss magnitude.
+
+The Python bridge also invokes this binary as:
+
+```text
+bpm-ranking-optimizer sweep <input.bin> <output.bin>
+```
+
+The private, versioned little-endian bridge format carries the base complex
+S-matrix, per-port termination gamma matrices, frequency evaluation ranges, and
+target gamma matrix. The result contains metrics and candidate indexes for the
+complete Cartesian product. It is intentionally an internal interface; use
+`bpm_tuner.rust_bridge.RustOptimizer.sweep` from Python.
 
 All ties are resolved by documented secondary metrics and finally by lexical
 `candidate_id`, making repeated runs deterministic.
-

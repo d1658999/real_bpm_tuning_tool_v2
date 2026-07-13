@@ -7,11 +7,11 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | ID | Requirement | Implementation | Verification |
 |---|---|---|---|
 | F-01 | One Product Manager and five Senior RF Engineer strategies | A strategy registry with the six names and responsibilities preserved from `Requirements.md`/`fleet.txt` | Unit test registry names/count; report inspection |
-| F-02 | Minimum-BOM strategy; reject an inadequate no-component result; target VSWR below 1.4 when feasible | Candidate score prioritizes feasibility, then counted reactive parts | Unit tests for ordering; RF integration run |
-| F-03 | Balanced low-VSWR/low-insertion-loss strategy | Weighted multi-objective score | Unit test score ordering; report comparison |
-| F-04 | Lowest-VSWR strategy | Minimax S11/S22 VSWR objective over configured bands | Unit test metrics/objective; RF integration run |
-| F-05 | Tightest, centered Smith-chart contour strategy | Contour spread/area and center-distance objective | Unit test known complex traces; plotted trace review |
-| F-06 | Lowest-insertion-loss strategy | Worst-case S21 loss objective with VSWR as a secondary diagnostic | Unit test objective; RF integration run |
+| F-02 | Minimum-BOM strategy within 10% of the best non-antenna target error | Rust ranking filters to the near-optimal target set, then minimizes component count and total target error | Unit tests for floor, rejection, and ordering; RF integration run |
+| F-03 | Balanced target-error/insertion-loss strategy | Sum of normalized peak target error and positive insertion-loss magnitude | Unit test score ordering; report comparison |
+| F-04 | Minimum-target strategy | Lexicographically minimize non-antenna target error, then dependent antenna target error | Unit test metrics/objective; RF integration run |
+| F-05 | Tightest target-centred Smith-chart strategy | Rust path minimizes target-error spread plus peak target error | Unit test known complex traces; plotted trace review |
+| F-06 | Lowest-insertion-loss strategy after meeting the target gate | Filter to target error within `floor + max(0.005, 15% floor)`, then minimize positive S21 loss magnitude | Unit test objective; RF integration run |
 | F-07 | PM selects lowest mass-production-risk result among five strategies | Apply the specified normalized risk formula and deterministic tie-breaking | Unit tests for formula, normalization and tie cases |
 | F-08 | Sequential phases: assignment, five sweeps, PM judgement, written reason | Optimization orchestrator emits phase/progress events and report sections | Integration test; generated report inspection |
 | F-09 | Fine-grained sweep using real BOM values | Search candidates come from supplied Murata files; optional generated 0.1-step ideal values may be diagnostic only, not selected as real BOM | BOM loader tests; selected-result provenance check |
@@ -32,7 +32,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | R-09 | Multiport signal bands: for N assigned signals, the highest signal is dependent and preceding signals can have individual bands | Per-signal optional bands with dependency validation | Unit tests for two-, three-, and four-signal configurations |
 | R-10 | Optional non-normalized Smith-chart impedance targets per driven signal, disabled individually by default | Port-level resistance/reactance are stored in ohms and converted to Γ; dynamic controls exclude the final dependent antenna signal | Two/three/four-port scope validation, conversion, JSON migration, GUI, metrics, and plot tests |
 | R-11 | Run cascade of configured Touchstone networks | scikit-rf circuit/cascade service with frequency interpolation and explicit terminations | Integration run on supplied files; finite S-parameter assertions |
-| R-12 | Run optimization through Rust | Python bridge invokes compiled Rust search kernel and validates returned candidates | Rust unit tests plus Python bridge integration test |
+| R-12 | Run optimization through Rust | Python exposes signal/tunable ports once; Rust performs the exhaustive parallel rank-one termination sweep and returns every combination metric | Rust unit tests plus binary-bridge and RF integration tests |
 | R-13 | Complex calculations use Rust; Python owns GUI/integration | Rust performs candidate scoring/search loop; Python/scikit-rf performs network I/O and final verification | Source/build audit; parity test on a small candidate set |
 | R-14 | Supplied fleet topology and 3.3-5 GHz configuration can be represented | Seed/sample project mirrors all file/port assignments in `fleet.txt` | Configuration validation and cascade integration test |
 
@@ -65,12 +65,12 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 
 | ID | Requirement | Implementation | Verification |
 |---|---|---|---|
-| O-01 | Compare five results: max S11/S22 VSWR, worst S21 insertion loss, component count, ±5% VSWR, sensitivity, spread and risk | Common metrics/result schema and comparison table | Unit tests for known arrays; report schema check |
-| O-02 | Risk = 0.30 normalized worst tolerance VSWR + 0.25 normalized count + 0.20 normalized sensitivity + 0.15 normalized absolute tolerance IL + 0.10 normalized spread | Pure scoring function; all-equal columns normalize to zero to avoid division by zero | Exact numeric unit tests |
+| O-01 | Compare five results: max non-antenna/antenna VSWR, target error, worst S21 insertion loss, component count, ±5% VSWR and target error, sensitivity, spread, and risk | Common target-aware metrics schema, JSON payload, and comparison table | Unit tests for known arrays; report schema check |
+| O-02 | Risk = 0.30 normalized worst tolerance target error + 0.25 normalized count + 0.20 normalized VSWR sensitivity + 0.15 normalized absolute tolerance IL + 0.10 normalized target-error spread | Pure scoring function with nominal-target and VSWR-spread fallbacks; all-equal columns normalize to zero; result rounds to four decimals | Exact numeric unit tests |
 | O-03 | Save each strategy's S11/S22 Smith plot, S21, VSWR and restorable JSON | Artifact exporter creates per-strategy JSON/PNG files | Temp-directory integration test; JSON reload test |
 | O-04 | Final decision plots include dotted VSWR=2 circle | Final dashboard adds constant-|Gamma| = 1/3 circle | Figure object or image review |
 | O-05 | Written Markdown report identifies selected agent, exact parts/values and decision rationale | Report generator consumes comparison and winning result | Golden-section/schema assertions and human review |
-| O-06 | ±5% mass-production analysis | Perturb component values or use an explicitly labelled conservative proxy | Statistical/property tests where implemented; limitation must appear in report |
+| O-06 | Independent ±5% component-value analysis | Convert nominal termination gamma to impedance, scale L by the value factor or divide C impedance by it, and exhaustively sweep `[1.00, 0.95, 1.05]` per selected component in Rust | Rust bridge/integration tests; limitation must appear in report |
 | O-07 | Fleet requirements output directory | Save agent optimization results to a timestamped folder `Fleet_results_YYYYMMDD_HHMMSS` containing all agents' JSON/PNG data, comparison plots, and report | Exporter saves directly to a dynamic subdirectory under the project root | Integration test checks timestamped folder creation and file presence |
 
 ## Visual design

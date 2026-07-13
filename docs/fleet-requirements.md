@@ -14,7 +14,7 @@ The feature is integrated into the core `FleetOptimizer.run` workflow:
 2. At the end of `FleetOptimizer.run`, it generates a timestamp string formatted as `%Y%m%d_%H%M%S`.
 3. It creates a dynamic result folder under the configured output root named `Fleet_results_YYYYMMDD_HHMMSS`.
 4. It calls `export_optimization_report` to generate the complete suite of results:
-   - `{strategy}.json` and `{strategy}.png` for all five strategies (`minimum_bom`, `balanced`, `lowest_vswr`, `tightest_contour`, `lowest_insertion_loss`).
+   - `{strategy}.json` and `{strategy}.png` for all five strategies (`minimum_bom`, `balanced`, `minimum_target`, `smith_contour`, `minimum_insertion_loss`).
    - `agent_comparison.png` for a metrics comparison bar plot.
    - `final_decision.png` for the final selected agent plot with the dotted VSWR = 2 circle constraint.
    - `report.md` describing the selection decision, performance tables, and BOM details.
@@ -48,7 +48,7 @@ export_optimization_report(report, saved_dir)
 ### CLI
 When running via the command line:
 ```bash
-python -m bpm_tuner --output outputs --candidates 4 --passes 1
+python -m bpm_tuner --output outputs --candidates 2
 ```
 The console will print the status of the selected agent and state where the fleet results folder was saved:
 ```
@@ -76,7 +76,6 @@ def test_fleet_optimizer_saves_results_to_timestamped_folder(tmp_path: Path) -> 
     config = default_fleet_config(ROOT)
     config.points = 11
     config.candidates_per_type = 2
-    config.optimization_passes = 1
     config.validate(allow_unselected=True)
 
     report = optimizer.run(config)
@@ -87,7 +86,7 @@ def test_fleet_optimizer_saves_results_to_timestamped_folder(tmp_path: Path) -> 
     assert (report.saved_dir / "agent_comparison.png").exists()
     assert (report.saved_dir / "final_decision.png").exists()
 
-    for strategy in ("minimum_bom", "balanced", "lowest_vswr", "tightest_contour", "lowest_insertion_loss"):
+    for strategy in ("minimum_bom", "balanced", "minimum_target", "smith_contour", "minimum_insertion_loss"):
         assert (report.saved_dir / f"{strategy}.json").exists()
         assert (report.saved_dir / f"{strategy}.png").exists()
 ```

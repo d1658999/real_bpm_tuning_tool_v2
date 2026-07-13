@@ -8,20 +8,20 @@
     - Responsibility: To judge the greatest performance on impedance matching considering mass production tolerances (e.g. 5%) and the contour on Smith Chart is smallest and approach center
 
 2.  Senior_engineer_Agent_1, whose role is "Senior RF engineer".
-    - Style: achieve an acceptable impedance match (e.g., VSWR < 1.4 or lower) using the fewest possible components, rejecting "no component" if performance is poor
-    - Responsibility: find the solution with the minimum BOM count that still meets a baseline performance requirement (VSWR < 1.4 or lower) if possible
+    - Style: use the fewest components among candidates whose non-antenna target error is within 10% of the best achievable non-antenna target error.
+    - Responsibility: reject a poor zero-component/open result unless it is genuinely within the 10% near-optimal target-error set; break ties by total non-antenna plus antenna target error.
 3.  Senior_engineer_Agent_2, whose role is "Senior RF engineer".
-    - Style: pursue the optimal performance for balance to complete the whole impedance matching
-    - Responsibility: research to balance low VSWR and low insertion loss
+    - Style: balance low peak target mismatch and low insertion loss.
+    - Responsibility: minimize `normalize(target_error_max) + normalize(worst_insertion_loss_magnitude)` across the complete candidate set.
 4.  Senior_engineer_Agent_3, whose role is "Senior RF engineer".
-    - Style: pursue the lowest VSWR to complete the whole impedance matching
-    - Responsibility: research to strictly minimize VSWR across all frequencies, even if it means using more components or accepting higher insertion loss  
+    - Style: strictly minimize peak target mismatch across signal ports.
+    - Responsibility: minimize the non-antenna target error first, then use the dependent antenna-port target error as the secondary objective.
 5.  Senior_engineer_Agent_4, whose role is "Senior RF engineer".
-    - Style: pursue the smallest contour region and approach center on Smith Chart
-    - Responsibility: research to minimize the contour area or trace on Smith Chart
+    - Style: pursue the smallest target-centred contour region on the Smith Chart.
+    - Responsibility: minimize the target-centred Smith score; the Rust sweep MAY use `target_error_spread + target_error_max` as the reference-compatible contour proxy.
 6.  Senior_engineer_Agent_5, whose role is "Senior RF engineer".
-    - Style: pursue the lowest insertion loss |S21|
-    - Responsibility: research the lowest insertion loss regardless of minor VSWR peaks
+    - Style: minimize insertion loss after meeting the active Smith target.
+    - Responsibility: first keep candidates whose target error is no greater than `target_floor + max(0.005, 0.15 * target_floor)`, then select the lowest positive insertion-loss magnitude and use target error as the tie-breaker.
 
 ### Layout design
 - There are three panels layout 
@@ -76,6 +76,46 @@
 - If some calculations or algorithms are complex, it MUST use Rust not Python for performance optimization and speed up those complicated math calculation and then export to Python main coding. The tool will use Python for higher-level logic and integration and GUI.
 - `Run optimization` shall use Rust to speed up the calculation and optimization.
 
+#### Reference-style exhaustive optimizer
+- The behavioral design source is `99_ reference/fleet_optimizer.py` and `99_ reference/lib.rs`. Production code SHALL implement the behavior in `bpm_tuner` and `rust_optimizer`; files under `99_ reference` SHALL remain unchanged reference material.
+- Python SHALL build one base S-parameter network whose external ports are ordered as all signal ports first and all tunable ports afterward. The highest-numbered signal port SHALL be the dependent antenna/common port.
+- Every disabled Smith target SHALL default to the Smith-chart center, equivalent to `50 + j0` ohm and reflection coefficient `target_gamma = 0`.
+- The optimizer SHALL construct a Cartesian product of the allowed choices at every tunable port and evaluate every combination once:
+  - `inductor`: sampled real Murata inductor choices when no fixed component is selected; an already selected part remains fixed.
+  - `capacitor`: sampled real Murata capacitor choices when no fixed component is selected; an already selected part remains fixed.
+  - `inductor/capacitor`: both real inductor and capacitor choices.
+  - `open/inductor/capacitor`: an open baseline plus both real inductor and capacitor choices.
+- `candidates_per_type` SHALL control how many evenly distributed real BOM parts of each requested type are included and SHALL default to `2`. The exhaustive combination count is the product of the candidate counts at all tunable ports. The former multi-pass coordinate-descent behavior SHALL NOT be used. Increasing this setting SHALL be presented as an exponential runtime and memory trade-off.
+- Rust SHALL perform the expensive Cartesian sweep in parallel. For each tunable port `k`, it SHALL eliminate that port with the reference rank-one termination update:
+
+  `S'[i,j] = S[i,j] + S[i,k] * gamma * S[k,j] / (1 - S[k,k] * gamma)`
+
+- After each termination, port `k` is removed and the next tunable port shifts to the same index. After all terminations, only the ordered signal ports remain.
+- The Rust sweep SHALL return, for every combination:
+  - Maximum VSWR across all non-antenna signal ports, each evaluated in its configured frequency band.
+  - Maximum VSWR at the dependent antenna port, evaluated over the union of the driven-signal bands.
+  - Worst positive insertion-loss magnitude from each driven signal port to the antenna port.
+  - `target_error_s11_max`: maximum `abs(Sii - target_gamma)` across non-antenna signal ports.
+  - `target_error_s22_max`: maximum `abs(Saa - target_gamma)` at the dependent antenna port.
+  - `target_error_max = max(target_error_s11_max, target_error_s22_max)`.
+  - `target_error_spread = abs(target_error_s11_max - target_error_s22_max)`.
+- All five agents SHALL select from the same complete sweep result. Their canonical result keys SHALL be `minimum_bom`, `balanced`, `minimum_target`, `smith_contour`, and `minimum_insertion_loss`.
+- Candidate ordering and all tie-breakers SHALL be deterministic, with the candidate identifier used as the final tie-breaker.
+
+#### Independent component tolerance sweep
+- Each winning agent result SHALL be evaluated with independent component-value factors `[1.00, 0.95, 1.05]`. The tolerance study SHALL evaluate the Cartesian product of these factors across all selected components; it SHALL NOT vary every component together using only one global scale factor.
+- Tolerance variation SHALL operate in the impedance domain using the nominal one-port reflection coefficient:
+
+  `Z_nominal = Z0 * (1 + gamma_nominal) / (1 - gamma_nominal)`
+
+  `Z_inductor_varied = Z_nominal * value_factor`
+
+  `Z_capacitor_varied = Z_nominal / value_factor`
+
+  `gamma_varied = (Z_varied - Z0) / (Z_varied + Z0)`
+
+- The tolerance result SHALL record the worst VSWR, worst positive insertion-loss magnitude, worst target error, and `vswr_sensitivity = max(0, worst_vswr_5pct - nominal_worst_vswr)` across all independent variations.
+
 ### Show the progress of optimization
 - Because the optimization may take a long time, the tool should show the progress of optimization in the GUI, such as a progress bar or a percentage. The tool should also allow user to cancel the optimization if needed.
 
@@ -90,9 +130,10 @@
 
 ### Fleet requirements
 - After `Run optimization`, the results from agents SHALL be saved to .json and .png files like example folder `outputs_port_target_optimization`. The result folder name is `Fleet_results_YYYYMMDD_HHMMSS` 
+- Each agent JSON metrics object SHALL expose the prompt-facing names `target_error_max`, `target_error_5pct_max`, `worst_il_5pct_db`, `vswr_5pct_max`, and `risk_score`, in addition to any internal compatibility names.
 
 #### Production risk score
-- The fleet SHALL calculate `risk_score` using the algorithm in `fleet_optimizer.py::_compute_risk_scores`.
+- The production implementation SHALL calculate `risk_score` after all five reference-style agent winners and their independent tolerance sweeps are complete.
 - A lower `risk_score` indicates a lower-risk result. The result with the lowest score SHALL be selected as the fleet winner.
 - Each metric SHALL be min-max normalized across all completed agent results before its weight is applied:
 

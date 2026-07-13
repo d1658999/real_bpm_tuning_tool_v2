@@ -38,10 +38,12 @@ bpm-tuner --cascade --output outputs_cascade
 Run all five optimization styles with a small development sweep:
 
 ```powershell
-bpm-tuner --output outputs --candidates 4 --passes 1
+bpm-tuner --output outputs --candidates 2
 ```
 
-For a more granular production study, increase `--candidates` and `--passes`. Every candidate is a real measured component from `Capacitors_BOM` or `Inductors_BOM`; the Rust kernel performs deterministic hot-path ranking for all five strategies.
+For a more granular production study, increase `--candidates`. The optimizer evaluates the full Cartesian product of the sampled real components, so runtime and result count grow multiplicatively with every tunable port. Every candidate is a measured component from `Capacitors_BOM` or `Inductors_BOM`; Rust performs the parallel S-matrix termination sweep and deterministic target-aware ranking.
+
+The five result strategies are `minimum_bom`, `balanced`, `minimum_target`, `smith_contour`, and `minimum_insertion_loss`. Each winner receives an independent `1.00/0.95/1.05` component-value tolerance sweep before the Principal Engineer applies the normalized production-risk score documented in `Requirements.md`.
 
 Outputs include one JSON configuration and one combined PNG per agent, an agent comparison PNG, the final decision PNG, and `report.md`.
 

@@ -82,7 +82,9 @@ class ProjectConfig:
     smith_target_resistance_ohm: float = 50.0
     smith_target_reactance_ohm: float = 0.0
     smith_reference_ohm: float = 50.0
-    candidates_per_type: int = 16
+    # Exhaustive search grows multiplicatively across tunable ports. Two real
+    # parts per type keeps the supplied six-slot project at 15,625 combinations.
+    candidates_per_type: int = 2
     optimization_passes: int = 2
 
     def validate(self, *, allow_unselected: bool = False) -> None:

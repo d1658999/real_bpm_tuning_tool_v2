@@ -18,7 +18,12 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--output", type=Path, default=Path("outputs"), help="optimization report directory")
     result.add_argument("--cascade", action="store_true", help="run only the configured cascade")
     result.add_argument("--candidates", type=int, default=None, help="real BOM candidates sampled per component type")
-    result.add_argument("--passes", type=int, default=None, help="coordinate-descent passes per strategy")
+    result.add_argument(
+        "--passes",
+        type=int,
+        default=None,
+        help="deprecated compatibility option; the exhaustive optimizer ignores pass count",
+    )
     return result
 
 

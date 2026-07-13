@@ -10,3 +10,4 @@ bpm_tuner.log
 /outputs_*
 /rust_optimizer/examples
 /real_bpm_tuning_tool.egg-info
+/Fleet_results_*
