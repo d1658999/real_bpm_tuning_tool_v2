@@ -38,6 +38,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -81,11 +82,11 @@ QPushButton#primaryButton { color: #ffffff; background: #0066cc; }
 QPushButton#primaryButton:hover { background: #0071e3; }
 QPushButton#dangerButton { color: #b42318; }
 QPushButton:disabled { color: #7a7a7a; background: #e8e8ed; }
-QListWidget, QTableWidget, QComboBox, QDoubleSpinBox {
+QListWidget, QTableWidget, QComboBox, QDoubleSpinBox, QSpinBox {
     background: #ffffff; border: 1px solid #d2d2d7; border-radius: 8px;
     selection-background-color: #dceeff; selection-color: #1d1d1f;
 }
-QComboBox, QDoubleSpinBox { min-height: 28px; padding: 1px 6px; }
+QComboBox, QDoubleSpinBox, QSpinBox { min-height: 28px; padding: 1px 6px; }
 QHeaderView::section {
     background: #fafafc; color: #333333; border: 0; border-bottom: 1px solid #e0e0e0;
     padding: 7px; font-weight: 600;
@@ -176,6 +177,7 @@ class CoreAPI:
                 smith_target_resistance_ohm=float(target.get("resistance_ohm", target.get("real", 50.0))),
                 smith_target_reactance_ohm=float(target.get("reactance_ohm", target.get("imag", 0.0))),
                 smith_reference_ohm=float(target.get("reference_ohm", 50.0)),
+                candidates_per_type=int(payload.get("candidates_per_type", 2)),
             )
             validate = getattr(config, "validate", None)
             if callable(validate):
@@ -253,6 +255,7 @@ class CoreAPI:
         return {
             "snp_files": files,
             "ports": ports,
+            "candidates_per_type": int(value.get("candidates_per_type", 2)),
             "smith_target": {
                 "enabled": bool(value.get("smith_target_enabled", False)),
                 "resistance_ohm": float(value.get("smith_target_resistance_ohm", 50.0)),
@@ -1152,6 +1155,17 @@ class MainWindow(QMainWindow):
         progress_layout.setContentsMargins(22, 8, 22, 8)
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("color: #7a7a7a;")
+        candidate_label = QLabel("BOM samples/type")
+        candidate_label.setToolTip(
+            "Each tunable inductor/capacitor port multiplies the Cartesian search. "
+            "Higher values improve BOM coverage but increase runtime and memory exponentially."
+        )
+        self.candidate_count = QSpinBox()
+        self.candidate_count.setObjectName("candidateCount")
+        self.candidate_count.setRange(1, 50)
+        self.candidate_count.setValue(2)
+        self.candidate_count.setSuffix(" parts")
+        self.candidate_count.setToolTip(candidate_label.toolTip())
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -1161,6 +1175,9 @@ class MainWindow(QMainWindow):
         self.cancel_button.setObjectName("dangerButton")
         self.cancel_button.clicked.connect(self.cancel_optimization)
         self.cancel_button.hide()
+        progress_layout.addWidget(candidate_label)
+        progress_layout.addWidget(self.candidate_count)
+        progress_layout.addSpacing(12)
         progress_layout.addWidget(self.status_label)
         progress_layout.addWidget(self.progress_bar, 1)
         progress_layout.addWidget(self.cancel_button)
@@ -1198,6 +1215,7 @@ class MainWindow(QMainWindow):
         return {
             "snp_files": [str(path) for path in self.files_panel.paths()],
             "ports": self.port_panel.port_settings(),
+            "candidates_per_type": self.candidate_count.value(),
             "smith_target": self.port_panel.target(),
         }
 
@@ -1299,6 +1317,7 @@ class MainWindow(QMainWindow):
         self.optimization_thread.finished.connect(self._thread_finished)
         self.run_optimization_button.setEnabled(False)
         self.run_cascade_button.setEnabled(False)
+        self.candidate_count.setEnabled(False)
         self.progress_bar.setValue(0)
         self.progress_bar.show()
         self.cancel_button.show()
@@ -1370,6 +1389,7 @@ class MainWindow(QMainWindow):
     def _thread_finished(self) -> None:
         self.run_optimization_button.setEnabled(True)
         self.run_cascade_button.setEnabled(True)
+        self.candidate_count.setEnabled(True)
         self.cancel_button.setEnabled(True)
         self.cancel_button.hide()
         self.progress_bar.hide()
@@ -1417,6 +1437,7 @@ class MainWindow(QMainWindow):
             files = [normalized[str(path)] for path in files]
             for port in payload.get("ports", []):
                 port["file"] = normalized.get(str(port.get("file", "")), str(port.get("file", "")))
+            self.candidate_count.setValue(int(payload.get("candidates_per_type", 2)))
             self.port_panel.apply_mapping(payload)
             self.files_panel.set_paths(files)
             self.status_label.setText(f"Loaded {Path(filename).name}")

@@ -25,6 +25,8 @@ const EXPECTED_COLUMNS: [&str; 9] = [
 ];
 const SWEEP_INPUT_MAGIC: &[u8; 8] = b"BPMSWP01";
 const SWEEP_OUTPUT_MAGIC: &[u8; 8] = b"BPMOUT01";
+const PASSIVITY_LIMIT: f64 = 1.0 + 1e-9;
+const INVALID_RF_PENALTY: f64 = 1e6;
 
 /// Metrics for one fully evaluated BOM combination.
 #[derive(Debug, Clone, PartialEq)]
@@ -567,32 +569,51 @@ fn compute_metrics(problem: &SweepProblem, s: &[Complex]) -> (f64, f64, f64, f64
     let mut worst_il_db = 0.0_f64;
     let mut target_non_ant = 0.0_f64;
     let mut target_ant = 0.0_f64;
+    let mut invalid_passivity = false;
 
     for port in 0..antenna {
         let (start, stop) = problem.eval_ranges[port];
         for frequency in start..=stop {
             let sii = s[frequency * n * n + port * n + port];
+            invalid_passivity |= !sii.norm().is_finite() || sii.norm() > PASSIVITY_LIMIT;
             vswr_non_ant = vswr_non_ant.max(vswr(sii.norm()));
             let target = problem.target_gamma[port * problem.nfreq + frequency];
             target_non_ant = target_non_ant.max(finite_penalty(sii.sub(target).norm()));
-            let transmission = s[frequency * n * n + antenna * n + port].norm().max(1e-15);
+            let raw_transmission = s[frequency * n * n + antenna * n + port].norm();
+            invalid_passivity |=
+                !raw_transmission.is_finite() || raw_transmission > PASSIVITY_LIMIT;
+            let transmission = raw_transmission.max(1e-15);
             worst_il_db = worst_il_db.max((-20.0 * transmission.log10()).max(0.0));
         }
     }
     let (start, stop) = problem.eval_ranges[antenna];
     for frequency in start..=stop {
         let saa = s[frequency * n * n + antenna * n + antenna];
+        invalid_passivity |= !saa.norm().is_finite() || saa.norm() > PASSIVITY_LIMIT;
         vswr_ant = vswr_ant.max(vswr(saa.norm()));
         let target = problem.target_gamma[antenna * problem.nfreq + frequency];
         target_ant = target_ant.max(finite_penalty(saa.sub(target).norm()));
     }
-    (
-        finite_penalty(vswr_non_ant),
-        finite_penalty(vswr_ant),
-        finite_penalty(worst_il_db),
-        target_non_ant,
-        target_ant,
-    )
+    if invalid_passivity {
+        // All five agents must reject a numerically active/non-passive result.
+        // Merely clipping VSWR is insufficient when a near-edge Smith target
+        // makes |Gamma| > 1 look deceptively close to the requested target.
+        (
+            INVALID_RF_PENALTY,
+            INVALID_RF_PENALTY,
+            INVALID_RF_PENALTY,
+            INVALID_RF_PENALTY,
+            INVALID_RF_PENALTY,
+        )
+    } else {
+        (
+            finite_penalty(vswr_non_ant),
+            finite_penalty(vswr_ant),
+            finite_penalty(worst_il_db),
+            target_non_ant,
+            target_ant,
+        )
+    }
 }
 
 fn vswr(magnitude: f64) -> f64 {
@@ -602,9 +623,9 @@ fn vswr(magnitude: f64) -> f64 {
 
 fn finite_penalty(value: f64) -> f64 {
     if value.is_finite() {
-        value.clamp(0.0, 1e6)
+        value.clamp(0.0, INVALID_RF_PENALTY)
     } else {
-        1e6
+        INVALID_RF_PENALTY
     }
 }
 

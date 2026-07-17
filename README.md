@@ -21,9 +21,10 @@ bpm-tuner --gui
 
 1. Add two or more `.sNp` files in the left panel.
 2. Assign every active port in the middle panel. Connections must be reciprocal, and signal names must be unique and consecutive from `s1` (two to four total). A file that is not yet part of the circuit may remain in the project when every one of its ports is `open`; it is ignored by cascade and optimization.
-3. Leave `open/inductor/capacitor` unselected to let optimization choose from the measured BOM. Smith targets are off by default and appear on each driven signal row: `s1` for a two-port result, `s1`/`s2` for three ports, and `s1`/`s2`/`s3` for four ports. The final signal is the dependent antenna port. Enable targets individually and enter physical resistance/reactance in ohms—for example, `50 + j0 Ω` targets the center of a 50-ohm Smith chart.
-4. Use **Run Cascade** to simulate the selected configuration or **Run Optimization** to run all five strategies. Optimization progress and cancellation are shown at the top.
-5. Save/load JSON configurations, export the cascaded Touchstone network and S21 CSV, or save the combined plot.
+3. Leave `open/inductor/capacitor` unselected to use a true open baseline and let optimization choose a measured capacitor or inductor. A saved agent result resolves that flexible state to the actual winning `open`, `capacitor`, or `inductor`, so loading it restores a fixed circuit. Smith targets are off by default and appear on each driven signal row: `s1` for a two-port result, `s1`/`s2` for three ports, and `s1`/`s2`/`s3` for four ports. The final signal is the dependent antenna port. Enable targets individually and enter physical resistance/reactance in ohms—for example, `50 + j0 Ω` targets the center of a 50-ohm Smith chart.
+4. Set **BOM samples/type** before optimization. The default is 2; increasing it covers more real parts but multiplies the Cartesian search at every tunable port, so runtime and memory grow exponentially.
+5. Use **Run Cascade** to simulate the selected configuration or **Run Optimization** to run all five strategies. Optimization progress and cancellation are shown at the top.
+6. Save/load JSON configurations, export the cascaded Touchstone network and S21 CSV, or save the combined plot.
 
 The plot panel supports reset, zoom, pan, and click markers. It shows S11/S22 on a Smith chart plus S21, VSWR, and return loss.
 
@@ -45,6 +46,8 @@ For a more granular production study, increase `--candidates`. The optimizer eva
 
 The five result strategies are `minimum_bom`, `balanced`, `minimum_target`, `smith_contour`, and `minimum_insertion_loss`. Each winner receives an independent `1.00/0.95/1.05` component-value tolerance sweep before the Principal Engineer applies the normalized production-risk score documented in `Requirements.md`.
 
+The Rust sweep rejects a result when an evaluated signal reflection or transmission magnitude exceeds the passive limit. This prevents a numerically active point outside the Smith circle from winning merely because it is close to a near-edge Smith target. If several agents produce the same lowest risk, the Principal Engineer keeps the declared reference agent order; identical results are not forced to look different.
+
 Outputs include one JSON configuration and one combined PNG per agent, an agent comparison PNG, the final decision PNG, and `report.md`.
 
 ## Validation
@@ -56,6 +59,6 @@ cargo test --manifest-path rust_optimizer\Cargo.toml
 
 ## Engineering caveat
 
-The reported ±5% value is an electrical sensitivity proxy based on scaling the measured component network away from an ideal thru. It supports consistent solution ranking, but it is not vendor tolerance or full production Monte Carlo evidence. Validate the selected network against component tolerance distributions, PCB stack-up and geometry, temperature, bias, connector/fixture uncertainty, and measured production samples before release.
+The reported ±5% value is an electrical sensitivity proxy. It converts each measured shunt termination reflection to impedance, independently scales inductor impedance by the value factor or divides capacitor impedance by it, and converts the result back to reflection coefficient. It supports consistent solution ranking, but it is not vendor tolerance or full production Monte Carlo evidence. Validate the selected network against component tolerance distributions, PCB stack-up and geometry, temperature, bias, connector/fixture uncertainty, and measured production samples before release.
 
 See [requirements traceability](docs/requirements-traceability.md) for implementation coverage and known limitations.

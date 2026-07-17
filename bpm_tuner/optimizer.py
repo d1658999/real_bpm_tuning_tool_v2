@@ -98,18 +98,22 @@ class FleetOptimizer:
         result: list[BOMComponent | None] = []
         if port.mode == ConnectionType.OPEN_INDUCTOR_CAPACITOR:
             result.append(None)
-        if port.mode in (
-            ConnectionType.INDUCTOR,
-            ConnectionType.INDUCTOR_CAPACITOR,
-            ConnectionType.OPEN_INDUCTOR_CAPACITOR,
-        ):
-            result.extend(evenly_spaced(self.bom["inductor"], candidate_count))
+
+        # Keep the reference candidate order. Combined modes enumerate
+        # capacitors before inductors; this makes candidate IDs and final
+        # tie-breaking deterministic relative to 99_ reference.
         if port.mode in (
             ConnectionType.CAPACITOR,
             ConnectionType.INDUCTOR_CAPACITOR,
             ConnectionType.OPEN_INDUCTOR_CAPACITOR,
         ):
             result.extend(evenly_spaced(self.bom["capacitor"], candidate_count))
+        if port.mode in (
+            ConnectionType.INDUCTOR,
+            ConnectionType.INDUCTOR_CAPACITOR,
+            ConnectionType.OPEN_INDUCTOR_CAPACITOR,
+        ):
+            result.extend(evenly_spaced(self.bom["inductor"], candidate_count))
         if not result:
             raise ValueError(f"No real BOM candidates are available for {port.mode.value}.")
         return result
@@ -268,10 +272,29 @@ class FleetOptimizer:
             slots, options_per_slot, combination, strict=True
         ):
             selected = options[selected_index]
-            config.networks[network_index].ports[port_index].component_path = (
-                str(selected.path.relative_to(self.root)) if selected is not None else None
-            )
+            port = config.networks[network_index].ports[port_index]
+            if selected is None:
+                # A fleet result must restore the resolved physical circuit,
+                # not another tunable open/L/C search state.
+                port.mode = ConnectionType.OPEN
+                port.component_path = None
+            else:
+                port.mode = (
+                    ConnectionType.CAPACITOR
+                    if selected.kind == "capacitor"
+                    else ConnectionType.INDUCTOR
+                )
+                port.component_path = str(selected.path.relative_to(self.root))
         return config
+
+    @staticmethod
+    def _select_principal_winner(agent_results: list[AgentResult]) -> AgentResult:
+        """Select the lowest-risk result with stable reference agent ordering."""
+        if not agent_results:
+            raise ValueError("The principal engineer has no completed agent results to compare.")
+        # Python's min is stable, so an exact risk tie keeps the declared agent
+        # order instead of introducing an unrelated alphabetic strategy bias.
+        return min(agent_results, key=lambda item: item.metrics.production_risk)
 
     def _tolerance_metrics(
         self,
@@ -427,16 +450,7 @@ class FleetOptimizer:
         assign_production_risk(agent_results)
         for item in agent_results:
             item.result.metrics = item.metrics
-        selected = min(
-            agent_results,
-            key=lambda item: (
-                item.metrics.production_risk,
-                item.metrics.target_error_5pct_max
-                if item.metrics.target_error_5pct_max is not None
-                else item.metrics.target_distance,
-                item.strategy,
-            ),
-        )
+        selected = self._select_principal_winner(agent_results)
         if progress_callback:
             progress_callback(100, f"Principal_engineer_Agent selected {selected.agent_name}")
 

@@ -7,6 +7,10 @@ import numpy as np
 import skrf as rf
 
 
+PASSIVITY_LIMIT = 1.0 + 1e-9
+INVALID_RF_PENALTY = 1e6
+
+
 @dataclass(frozen=True)
 class PerformanceMetrics:
     max_vswr_s11: float
@@ -44,8 +48,8 @@ def network_metrics(
     if network.nports < 2:
         raise ValueError("At least two signal ports are required to calculate S11, S22, and S21.")
     magnitude = np.abs(network.s)
-    diagonal = np.stack([magnitude[:, i, i] for i in range(network.nports)], axis=1)
-    diagonal = np.clip(diagonal, 0.0, 0.999999)
+    raw_diagonal = np.stack([magnitude[:, i, i] for i in range(network.nports)], axis=1)
+    diagonal = np.clip(raw_diagonal, 0.0, 0.999999)
     vswr = (1.0 + diagonal) / (1.0 - diagonal)
     frequencies = network.f / 1e9
 
@@ -70,6 +74,16 @@ def network_metrics(
         -20.0 * np.log10(np.maximum(magnitude[mask, antenna_index, index], 1e-15))
         for index, mask in enumerate(masks[:-1])
     ]
+    relevant_reflections = [
+        raw_diagonal[mask, index] for index, mask in enumerate(masks)
+    ]
+    relevant_transmissions = [
+        magnitude[mask, antenna_index, index] for index, mask in enumerate(masks[:-1])
+    ]
+    invalid_passivity = any(
+        np.any(~np.isfinite(values)) or np.any(values > PASSIVITY_LIMIT)
+        for values in (*relevant_reflections, *relevant_transmissions)
+    )
     traces = np.concatenate(reflection_traces)
     active_targets = dict(targets or {})
     if target is not None and targets is None:
@@ -96,6 +110,22 @@ def network_metrics(
         + np.std(np.imag(target_points)) ** 2
         + np.mean(np.abs(target_points)) ** 2
     )
+    if invalid_passivity:
+        return PerformanceMetrics(
+            max_vswr_s11=INVALID_RF_PENALTY,
+            max_vswr_s22=INVALID_RF_PENALTY,
+            worst_vswr=INVALID_RF_PENALTY,
+            worst_il_db=INVALID_RF_PENALTY,
+            smith_radius=INVALID_RF_PENALTY,
+            smith_contour=INVALID_RF_PENALTY,
+            target_distance=INVALID_RF_PENALTY,
+            target_error_s11_max=INVALID_RF_PENALTY,
+            target_error_s22_max=INVALID_RF_PENALTY,
+            target_error_spread=0.0,
+            vswr_spread=0.0,
+            component_count=component_count,
+        )
+
     return PerformanceMetrics(
         max_vswr_s11=max(vswr_maxima[:-1], default=1.0),
         max_vswr_s22=vswr_maxima[-1],

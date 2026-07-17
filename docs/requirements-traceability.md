@@ -32,7 +32,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | R-09 | Multiport signal bands: for N assigned signals, the highest signal is dependent and preceding signals can have individual bands | Per-signal optional bands with dependency validation | Unit tests for two-, three-, and four-signal configurations |
 | R-10 | Optional non-normalized Smith-chart impedance targets per driven signal, disabled individually by default | Port-level resistance/reactance are stored in ohms and converted to Γ; dynamic controls exclude the final dependent antenna signal | Two/three/four-port scope validation, conversion, JSON migration, GUI, metrics, and plot tests |
 | R-11 | Run cascade of configured Touchstone networks | scikit-rf circuit/cascade service with frequency interpolation and explicit terminations | Integration run on supplied files; finite S-parameter assertions |
-| R-12 | Run optimization through Rust | Python exposes signal/tunable ports once; Rust performs the exhaustive parallel rank-one termination sweep and returns every combination metric | Rust unit tests plus binary-bridge and RF integration tests |
+| R-12 | Run optimization through Rust | Python exposes signal/tunable ports once; Rust performs the exhaustive parallel rank-one termination sweep, rejects non-passive signal results, and returns every combination metric | Rust unit tests plus binary-bridge, passivity-regression, and RF integration tests |
 | R-13 | Complex calculations use Rust; Python owns GUI/integration | Rust performs candidate scoring/search loop; Python/scikit-rf performs network I/O and final verification | Source/build audit; parity test on a small candidate set |
 | R-14 | Supplied fleet topology and 3.3-5 GHz configuration can be represented | Seed/sample project mirrors all file/port assignments in `fleet.txt` | Configuration validation and cascade integration test |
 
@@ -58,7 +58,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | G-07 | Save and Load Config as JSON | Versioned JSON serialization with relative/source paths | Round-trip test and malformed-file error test |
 | G-08 | Export current cascade as `.sNp` | scikit-rf Touchstone writer preserves port count | Export/read-back integration test |
 | G-09 | Export insertion loss as CSV | CSV includes frequency and S21 dB columns | Export schema/value test |
-| G-10 | Show optimization percentage/progress and allow cancellation | Worker thread/process receives Rust progress and cooperative cancel token | Runner callback/cancellation tests; GUI smoke test |
+| G-10 | Show optimization percentage/progress and allow cancellation | Worker thread/process receives Rust progress and cooperative cancel token; GUI exposes sampled BOM parts/type with an exponential-search warning | Runner callback/cancellation and GUI config round-trip tests; GUI smoke test |
 | G-11 | Invalid settings or failures produce an actionable warning | Exception boundary turns failures into user-facing messages without hanging | Unit tests for service errors; GUI smoke test |
 
 ## Reports and result artifacts
@@ -67,7 +67,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 |---|---|---|---|
 | O-01 | Compare five results: max non-antenna/antenna VSWR, target error, worst S21 insertion loss, component count, ±5% VSWR and target error, sensitivity, spread, and risk | Common target-aware metrics schema, JSON payload, and comparison table | Unit tests for known arrays; report schema check |
 | O-02 | Risk = 0.30 normalized worst tolerance target error + 0.25 normalized count + 0.20 normalized VSWR sensitivity + 0.15 normalized absolute tolerance IL + 0.10 normalized target-error spread | Pure scoring function with nominal-target and VSWR-spread fallbacks; all-equal columns normalize to zero; result rounds to four decimals | Exact numeric unit tests |
-| O-03 | Save each strategy's S11/S22 Smith plot, S21, VSWR and restorable JSON | Artifact exporter creates per-strategy JSON/PNG files | Temp-directory integration test; JSON reload test |
+| O-03 | Save each strategy's S11/S22 Smith plot, S21, VSWR and restorable JSON | Artifact exporter creates per-strategy JSON/PNG files; flexible open/L/C winners are resolved to fixed `open`, `capacitor`, or `inductor` modes | Temp-directory integration test; resolved-assignment and JSON reload tests |
 | O-04 | Final decision plots include dotted VSWR=2 circle | Final dashboard adds constant-|Gamma| = 1/3 circle | Figure object or image review |
 | O-05 | Written Markdown report identifies selected agent, exact parts/values and decision rationale | Report generator consumes comparison and winning result | Golden-section/schema assertions and human review |
 | O-06 | Independent ±5% component-value analysis | Convert nominal termination gamma to impedance, scale L by the value factor or divide C impedance by it, and exhaustively sweep `[1.00, 0.95, 1.05]` per selected component in Rust | Rust bridge/integration tests; limitation must appear in report |
