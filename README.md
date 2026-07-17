@@ -20,11 +20,12 @@ bpm-tuner --gui
 ```
 
 1. Add two or more `.sNp` files in the left panel.
-2. Assign every active port in the middle panel. Connections must be reciprocal, and signal names must be unique and consecutive from `s1` (two to four total). A file that is not yet part of the circuit may remain in the project when every one of its ports is `open`; it is ignored by cascade and optimization.
-3. Leave `open/inductor/capacitor` unselected to use a true open baseline and let optimization choose a measured capacitor or inductor. A saved agent result resolves that flexible state to the actual winning `open`, `capacitor`, or `inductor`, so loading it restores a fixed circuit. Smith targets are off by default and appear on each driven signal row: `s1` for a two-port result, `s1`/`s2` for three ports, and `s1`/`s2`/`s3` for four ports. The final signal is the dependent antenna port. Enable targets individually and enter physical resistance/reactance in ohms—for example, `50 + j0 Ω` targets the center of a 50-ohm Smith chart.
-4. Set **BOM samples/type** before optimization. The default is 2; increasing it covers more real parts but multiplies the Cartesian search at every tunable port, so runtime and memory grow exponentially.
-5. Use **Run Cascade** to simulate the selected configuration or **Run Optimization** to run all five strategies. Optimization progress and cancellation are shown at the top.
-6. Save/load JSON configurations, export the cascaded Touchstone network and S21 CSV, or save the combined plot.
+2. Assign every active port in the middle panel's **Port configuration** table. Connections must be reciprocal, and signal names must be unique and consecutive from `s1` (two to four total). A file that is not yet part of the circuit may remain in the project when every one of its ports is `open`; it is ignored by cascade and optimization.
+3. Use the **Frequency range & Smith targets** table above Port configuration to set per-port start/stop frequencies and optional impedance targets. `Auto` uses the full Touchstone frequency range. Smith targets are off by default and appear on each driven signal row: `s1` for a two-port result, `s1`/`s2` for three ports, and `s1`/`s2`/`s3` for four ports. The final signal is the dependent antenna port. Enable targets individually and enter physical resistance/reactance in ohms—for example, `50 + j0 Ω` targets the center of a 50-ohm Smith chart.
+4. Leave `open/inductor/capacitor` unselected to use a true open baseline and let optimization choose a measured capacitor or inductor. A saved agent result resolves that flexible state to the actual winning `open`, `capacitor`, or `inductor`, so loading it restores a fixed circuit.
+5. Set **BOM samples/type** before optimization. The default is 2; increasing it covers more real parts but multiplies the Cartesian search at every tunable port, so runtime and memory grow exponentially.
+6. Use **Run Cascade** to simulate the selected configuration or **Run Optimization** to run all five strategies. Optimization progress and cancellation are shown at the top.
+7. Save/load JSON configurations, export the cascaded Touchstone network and S21 CSV, or save the combined plot.
 
 The plot panel supports reset, zoom, pan, and click markers. It shows S11/S22 on a Smith chart plus S21, VSWR, and return loss.
 

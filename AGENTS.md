@@ -18,3 +18,7 @@
 - You are good at build tools, and belows are for example of execution_control and impedance_matching_requirements.
 
 ### Don't do any git command because still need to check the AI generated code and commit by human.
+
+
+### Reference folder: 99_reference
+- The files in the folder are for reference only, and you should not modify them. You can refer to the code in this folder to understand the implementation of the project, but you should not make any changes to these files or import them.

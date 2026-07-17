@@ -479,19 +479,24 @@ class FilesPanel(QFrame):
 class PortSettingsPanel(QFrame):
     """Middle panel: editable settings for every port of every input file."""
 
-    HEADERS = (
+    PORT_HEADERS = (
         "File",
         "Port",
         "Mode",
         "Measured component",
         "Connect to",
         "Signal",
+    )
+    FREQUENCY_TARGET_HEADERS = (
+        "File",
+        "Port",
         "Start GHz",
         "Stop GHz",
         "Target",
         "Target R Ω",
         "Target X Ω",
     )
+    HEADERS = PORT_HEADERS
 
     def __init__(self, project_root: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -504,16 +509,36 @@ class PortSettingsPanel(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(17, 17, 17, 17)
-        title = QLabel("Port configuration")
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
-        hint = QLabel(
-            "Open is the safe default. Smith-target controls appear only for driven signal ports; "
-            "the highest signal number is the dependent antenna port."
+
+        frequency_title = QLabel("Frequency range & Smith targets")
+        frequency_title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        frequency_hint = QLabel(
+            "Auto uses each Touchstone file's full frequency range. Smith targets are available only "
+            "for driven signal ports and remain disabled by default."
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #7a7a7a;")
-        self.table = QTableWidget(0, len(self.HEADERS))
-        self.table.setHorizontalHeaderLabels(self.HEADERS)
+        frequency_hint.setWordWrap(True)
+        frequency_hint.setStyleSheet("color: #7a7a7a;")
+        self.frequency_target_table = QTableWidget(0, len(self.FREQUENCY_TARGET_HEADERS))
+        self.frequency_target_table.setObjectName("frequencyTargetTable")
+        self.frequency_target_table.setHorizontalHeaderLabels(self.FREQUENCY_TARGET_HEADERS)
+        self.frequency_target_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.frequency_target_table.setAlternatingRowColors(True)
+        self.frequency_target_table.verticalHeader().setVisible(False)
+        frequency_header = self.frequency_target_table.horizontalHeader()
+        frequency_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        frequency_header.setSectionResizeMode(0, QHeaderView.Stretch)
+
+        port_title = QLabel("Port configuration")
+        port_title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        port_hint = QLabel(
+            "Open is the safe default. Assign signal ports consecutively from s1; the highest "
+            "signal number is the dependent antenna port."
+        )
+        port_hint.setWordWrap(True)
+        port_hint.setStyleSheet("color: #7a7a7a;")
+        self.table = QTableWidget(0, len(self.PORT_HEADERS))
+        self.table.setObjectName("portConfigurationTable")
+        self.table.setHorizontalHeaderLabels(self.PORT_HEADERS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -522,8 +547,12 @@ class PortSettingsPanel(QFrame):
         header.setSectionResizeMode(3, QHeaderView.Stretch)
         header.setSectionResizeMode(4, QHeaderView.Stretch)
 
-        layout.addWidget(title)
-        layout.addWidget(hint)
+        layout.addWidget(frequency_title)
+        layout.addWidget(frequency_hint)
+        layout.addWidget(self.frequency_target_table, 1)
+        layout.addSpacing(8)
+        layout.addWidget(port_title)
+        layout.addWidget(port_hint)
         layout.addWidget(self.table, 1)
 
     @staticmethod
@@ -554,6 +583,7 @@ class PortSettingsPanel(QFrame):
         rows = sum(_touchstone_port_count(path) for path in self._paths)
         self._rebuilding = True
         self.table.setRowCount(rows)
+        self.frequency_target_table.setRowCount(rows)
         targets = [f"{path.name}:p{port}" for path in self._paths for port in range(1, _touchstone_port_count(path) + 1)]
         row = 0
         for path in self._paths:
@@ -574,14 +604,15 @@ class PortSettingsPanel(QFrame):
         targets: Sequence[str],
         setting: Mapping[str, Any],
     ) -> None:
-        file_item = QTableWidgetItem(path.name)
-        file_item.setToolTip(str(path))
-        file_item.setData(Qt.UserRole, str(path))
-        file_item.setFlags(file_item.flags() & ~Qt.ItemIsEditable)
-        port_item = QTableWidgetItem(str(port))
-        port_item.setFlags(port_item.flags() & ~Qt.ItemIsEditable)
-        self.table.setItem(row, 0, file_item)
-        self.table.setItem(row, 1, port_item)
+        for table in (self.table, self.frequency_target_table):
+            file_item = QTableWidgetItem(path.name)
+            file_item.setToolTip(str(path))
+            file_item.setData(Qt.UserRole, str(path))
+            file_item.setFlags(file_item.flags() & ~Qt.ItemIsEditable)
+            port_item = QTableWidgetItem(str(port))
+            port_item.setFlags(port_item.flags() & ~Qt.ItemIsEditable)
+            table.setItem(row, 0, file_item)
+            table.setItem(row, 1, port_item)
 
         mode = QComboBox()
         mode.addItems(CONNECTION_MODES)
@@ -609,11 +640,11 @@ class PortSettingsPanel(QFrame):
         self.table.setCellWidget(row, 3, component)
         self.table.setCellWidget(row, 4, connection)
         self.table.setCellWidget(row, 5, signal)
-        self.table.setCellWidget(row, 6, start)
-        self.table.setCellWidget(row, 7, stop)
-        self.table.setCellWidget(row, 8, target_enabled)
-        self.table.setCellWidget(row, 9, target_resistance)
-        self.table.setCellWidget(row, 10, target_reactance)
+        self.frequency_target_table.setCellWidget(row, 2, start)
+        self.frequency_target_table.setCellWidget(row, 3, stop)
+        self.frequency_target_table.setCellWidget(row, 4, target_enabled)
+        self.frequency_target_table.setCellWidget(row, 5, target_resistance)
+        self.frequency_target_table.setCellWidget(row, 6, target_reactance)
         self._mode_changed(row, mode.currentText())
         self._set_combo_data(component, setting.get("component"))
         self._set_combo_value(connection, str(setting.get("connect_to", "—")))
@@ -670,9 +701,9 @@ class PortSettingsPanel(QFrame):
         dependent_number = max((number for _, number in assignments), default=0)
         enough_signals = len(assignments) >= 2
         for row in range(self.table.rowCount()):
-            enabled = self.table.cellWidget(row, 8)
-            resistance = self.table.cellWidget(row, 9)
-            reactance = self.table.cellWidget(row, 10)
+            enabled = self.frequency_target_table.cellWidget(row, 4)
+            resistance = self.frequency_target_table.cellWidget(row, 5)
+            reactance = self.frequency_target_table.cellWidget(row, 6)
             assignment = next((number for target_row, number in assignments if target_row == row), None)
             eligible = enough_signals and assignment is not None and assignment != dependent_number
             if not isinstance(enabled, QCheckBox):
@@ -691,9 +722,9 @@ class PortSettingsPanel(QFrame):
                 reactance.setEnabled(eligible and enabled.isChecked())
 
     def _target_toggled(self, row: int, checked: bool) -> None:
-        enabled = self.table.cellWidget(row, 8)
-        resistance = self.table.cellWidget(row, 9)
-        reactance = self.table.cellWidget(row, 10)
+        enabled = self.frequency_target_table.cellWidget(row, 4)
+        resistance = self.frequency_target_table.cellWidget(row, 5)
+        reactance = self.frequency_target_table.cellWidget(row, 6)
         eligible = isinstance(enabled, QCheckBox) and bool(enabled.property("targetEligible"))
         if isinstance(resistance, QDoubleSpinBox):
             resistance.setEnabled(eligible and checked)
@@ -714,11 +745,11 @@ class PortSettingsPanel(QFrame):
             component = self.table.cellWidget(row, 3)
             connection = self.table.cellWidget(row, 4)
             signal = self.table.cellWidget(row, 5)
-            start = self.table.cellWidget(row, 6)
-            stop = self.table.cellWidget(row, 7)
-            target_enabled = self.table.cellWidget(row, 8)
-            target_resistance = self.table.cellWidget(row, 9)
-            target_reactance = self.table.cellWidget(row, 10)
+            start = self.frequency_target_table.cellWidget(row, 2)
+            stop = self.frequency_target_table.cellWidget(row, 3)
+            target_enabled = self.frequency_target_table.cellWidget(row, 4)
+            target_resistance = self.frequency_target_table.cellWidget(row, 5)
+            target_reactance = self.frequency_target_table.cellWidget(row, 6)
             settings.append(
                 {
                     "file": str(file_item.data(Qt.UserRole)),
