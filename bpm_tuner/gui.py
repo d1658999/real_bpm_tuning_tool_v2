@@ -1042,6 +1042,7 @@ class PlotPanel(QFrame):
         return self.axes[0, 0]
 
     def _draw_empty(self) -> None:
+        self._clear_markers()
         for axis in self.axes.flat:
             axis.clear()
         self._draw_smith_grid(self.smith_axis)
@@ -1128,6 +1129,10 @@ class PlotPanel(QFrame):
     def show_result(self, result: Any) -> None:
         self.result = result
         self._data = self._extract_data(result)
+        # Remove marker overlays while they are still attached to their axes.
+        # Clearing an axis first can leave stale artists whose remove() method
+        # raises NotImplementedError on the next marker click.
+        self._clear_markers()
         for axis in self.axes.flat:
             axis.clear()
         data = self._data
@@ -1260,7 +1265,10 @@ class PlotPanel(QFrame):
         for artist in self._marker_artists:
             try:
                 artist.remove()
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, NotImplementedError):
+                # An axes redraw may already have detached the artist.  Its
+                # stale reference must still be discarded so markers remain
+                # usable after subsequent cascade/optimization results.
                 pass
         self._marker_artists.clear()
 

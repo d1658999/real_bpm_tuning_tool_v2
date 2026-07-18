@@ -53,7 +53,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | G-01 | Three panels: file list left, connections middle, plots right | Resizable desktop splitter/layout | GUI smoke test and screenshot review |
 | G-02 | Right panel shows S11/S22 Smith chart in standard scikit-rf form | Matplotlib/scikit-rf Smith projection with both traces | Plot-generation test; RF engineer review |
 | G-03 | Plot insertion loss S21, VSWR S11/S22, and return loss S11/S22 | Shared-frequency plot dashboard with units and legend | Metric unit tests; plot inspection |
-| G-04 | Reset original, zoom in/out, move and marker controls | Matplotlib navigation/marker handlers; reset restores original cascade | GUI interaction test/manual check |
+| G-04 | Reset original, zoom in/out, move and marker controls; markers remain usable after a Cascade or Optimization redraw | Matplotlib navigation/marker handlers remove live overlays before clearing axes, discard detached artist references defensively, and keep Marker mode connected across result refreshes | GUI lifecycle regression places a marker, redraws the result, and places another marker; manual check |
 | G-05 | Save combined figures as PNG | Figure export service writes one dashboard image | Temp-path export test verifies PNG signature/nonzero size |
 | G-06 | Top toolbar has Run Cascade and Run Optimization | Toolbar actions call validation then background services | GUI smoke test |
 | G-07 | Save and Load Config as JSON | Versioned JSON serialization with relative/source paths | Round-trip test and malformed-file error test |

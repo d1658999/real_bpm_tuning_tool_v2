@@ -27,7 +27,7 @@ bpm-tuner --gui
 6. Use **Run Cascade** to simulate the selected configuration or **Run Optimization** to run all five strategies. Optimization progress and cancellation are shown at the top.
 7. Save/load JSON configurations, export the cascaded Touchstone network and S21 CSV, or save the combined plot.
 
-The plot panel supports reset, zoom, pan, and click markers. It shows S11/S22 on a Smith chart plus S21, VSWR, and return loss.
+The plot panel supports reset, zoom, pan, and click markers. It shows S11/S22 on a Smith chart plus S21, VSWR, and return loss. When Marker mode is active, running Cascade or Optimization clears the old overlays but keeps Marker mode ready; click any refreshed Smith-chart trace or frequency plot to place a new synchronized marker.
 
 ## Use the fleet.txt example
 

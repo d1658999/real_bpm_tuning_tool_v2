@@ -172,3 +172,13 @@
 - [x] Please merge the columns of `Measured component`, `Connect to`, `Signal` to one column called `Port configuration` in the middle panel to save the width space for more comfortable vision. The `Port configuration` column will show the connection setting for every port of every snp file, such as `open`, `short`, `inductor`, `capacitor`, `inductor/capacitor`, `open/inductor/capacitor`, `connect`, `signal`. The tool will automatically check the connection setting and give a warning if the setting is invalid.
 - [x] It allow user to set the range of Inductor and Capacitor value for the optimization, such as Inductor range is from 0.1nH to 10nH, and Capacitor range is from 0.1pF to 100pF for specific range that user wants. The tool will automatically check the range setting and give a warning if the setting is invalid.
 - [x] What I want to set the range of Inductor and Capacitor value for the optimization is to set them for each port individually on `Inductor`, `Capacitor`, `Inductor/Capacitor`, and `Open/Inductor/Capacitor`. For example, if user has 3 ports, user can set the range of Inductor and Capacitor value for port 1, port 2, and port 3 individually. 
+- [x] Marker has some problem after one time use and then `Run Cascade` or `Run Optimization` again, the marker will not show on the Smith Chart and frequency response plots. The tool should fix this issue and make sure the marker can show on the Smith Chart and frequency response plots after one time use and then `Run Cascade` or `Run Optimization` again. The error message: `Traceback (most recent call last):
+  File "C:\Users\d1658\AppData\Local\Programs\Python\Python312\Lib\site-packages\matplotlib\cbook.py", line 361, in process
+    func(*args, **kwargs)
+  File "C:\Users\d1658\Documents\project\real_bpm_tuning_tool_v2\bpm_tuner\gui.py", line 1225, in _place_marker
+    self._clear_markers()
+  File "C:\Users\d1658\Documents\project\real_bpm_tuning_tool_v2\bpm_tuner\gui.py", line 1262, in _clear_markers
+    artist.remove()
+  File "C:\Users\d1658\AppData\Local\Programs\Python\Python312\Lib\site-packages\matplotlib\artist.py", line 256, in remove
+    raise NotImplementedError('cannot remove artist')
+NotImplementedError: cannot remove artist`, please fix it
