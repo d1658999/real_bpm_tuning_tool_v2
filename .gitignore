@@ -5,6 +5,8 @@ __pycache__/
 .pytest_tmp/
 native/target/
 outputs/
+/build/
+/dist/
 bpm_tuner.log
 /tests
 /outputs_*
