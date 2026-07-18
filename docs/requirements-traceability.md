@@ -44,7 +44,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | B-02 | Murata LQP02TQ inductors come from `Inductors_BOM` | BOM scanner loads `.s2p`, part number, type and nominal nH parsed from filenames | Unit/integration tests against representative files |
 | B-03 | UI shows the selected component's real value | Component selection stores part number and nominal value/unit | Model test; GUI inspection |
 | B-04 | Optimization selects actual supplied parts | Candidate/result includes BOM file provenance and rejects unknown paths | Result validation test; report inspection |
-| B-05 | User can constrain optimization by inductor nH and capacitor pF ranges | Inclusive persisted value windows filter each measured BOM catalog before evenly spaced candidate sampling; invalid or empty ranges stop with an actionable warning | Model validation, GUI mapping round-trip, and optimizer option-filter tests |
+| B-05 | User can constrain inductor nH and capacitor pF ranges independently for every tunable port | Inclusive range fields persist on each port and filter that port's measured BOM before evenly spaced sampling; legacy project-wide windows remain fallback-only; invalid or empty ranges stop with a file/port-specific warning | Per-port model validation, GUI mode/independence and migration round-trips, and optimizer option-filter tests |
 
 ## GUI layout and controls
 
@@ -61,7 +61,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | G-09 | Export insertion loss as CSV | CSV includes frequency and S21 dB columns | Export schema/value test |
 | G-10 | Show optimization percentage/progress and allow cancellation | Worker thread/process receives Rust progress and cooperative cancel token; GUI exposes sampled BOM parts/type with 100-million-combination and estimated 10-minute warnings | Runner callback/cancellation, winner-mode parity, and GUI config round-trip tests; GUI smoke test |
 | G-11 | Invalid settings or failures produce an actionable warning | Exception boundary turns failures into user-facing messages without hanging | Unit tests for service errors; GUI smoke test |
-| G-12 | Merge measured component, connection target, and signal assignment into one Port configuration column | Four-column port table uses a mode-driven contextual editor while preserving all connection validation and JSON fields | GUI structure, contextual editor, and configuration round-trip tests |
+| G-12 | Merge measured component, connection target, signal assignment, and per-port L/C ranges into one Port configuration column | Four-column port table uses a mode-driven contextual editor; single-type modes show one range and combined modes stack both ranges for readable width | GUI structure, all four tunable-mode editors, independent range, validation, and configuration round-trip tests |
 
 ## Reports and result artifacts
 

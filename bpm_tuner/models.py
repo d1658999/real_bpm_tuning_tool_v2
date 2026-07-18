@@ -28,6 +28,12 @@ class PortConfig:
     port: int
     mode: ConnectionType = ConnectionType.OPEN
     component_path: str | None = None
+    # Inclusive measured-BOM windows for this physical port. A missing pair
+    # falls back to the legacy project-wide window, then to the full catalog.
+    inductor_min_nh: float | None = None
+    inductor_max_nh: float | None = None
+    capacitor_min_pf: float | None = None
+    capacitor_max_pf: float | None = None
     connect_network: str | None = None
     connect_port: int | None = None
     signal: str | None = None
@@ -86,8 +92,8 @@ class ProjectConfig:
     # parts per type keeps the supplied six-slot project at 15,625 combinations.
     candidates_per_type: int = 2
     optimization_passes: int = 2
-    # Optional inclusive real-BOM value windows. ``None`` preserves the full
-    # measured catalog for configurations saved before range controls existed.
+    # Deprecated project-wide fallback retained so JSON files and CLI commands
+    # from the first range implementation continue to work.
     inductor_min_nh: float | None = None
     inductor_max_nh: float | None = None
     capacitor_min_pf: float | None = None
@@ -150,6 +156,32 @@ class ProjectConfig:
         for network in self.networks:
             source = Path(network.path).name
             for port in network.ports:
+                for label, minimum, maximum, unit in (
+                    ("Inductor", port.inductor_min_nh, port.inductor_max_nh, "nH"),
+                    ("Capacitor", port.capacitor_min_pf, port.capacitor_max_pf, "pF"),
+                ):
+                    if (minimum is None) != (maximum is None):
+                        raise ConfigError(
+                            f"{source} port {port.port}: set both the {label.lower()} minimum "
+                            "and maximum, or leave both automatic."
+                        )
+                    if minimum is None:
+                        continue
+                    if not math.isfinite(minimum) or not math.isfinite(maximum):
+                        raise ConfigError(
+                            f"{source} port {port.port}: {label} optimization range must use "
+                            f"finite values in {unit}."
+                        )
+                    if minimum <= 0 or maximum <= 0:
+                        raise ConfigError(
+                            f"{source} port {port.port}: {label} optimization range values "
+                            f"must be greater than zero {unit}."
+                        )
+                    if minimum > maximum:
+                        raise ConfigError(
+                            f"{source} port {port.port}: {label} optimization range minimum "
+                            "must not exceed its maximum."
+                        )
                 if port.smith_target_enabled and port.mode != ConnectionType.SIGNAL:
                     raise ConfigError(
                         f"{source} port {port.port}: Smith targets can be enabled only on signal ports."

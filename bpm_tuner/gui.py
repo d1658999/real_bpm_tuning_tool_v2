@@ -160,6 +160,10 @@ class CoreAPI:
                             port=int(row["port"]),
                             mode=connection_type(str(row.get("mode", "open"))),
                             component_path=row.get("component"),
+                            inductor_min_nh=row.get("inductor_min_nh"),
+                            inductor_max_nh=row.get("inductor_max_nh"),
+                            capacitor_min_pf=row.get("capacitor_min_pf"),
+                            capacitor_max_pf=row.get("capacitor_max_pf"),
                             connect_network=connect_network,
                             connect_port=connect_port,
                             signal=row.get("signal"),
@@ -248,6 +252,26 @@ class CoreAPI:
                         "port": int(port["port"]),
                         "mode": str(mode),
                         "component": port.get("component_path"),
+                        "inductor_min_nh": (
+                            port.get("inductor_min_nh")
+                            if port.get("inductor_min_nh") is not None
+                            else value.get("inductor_min_nh")
+                        ),
+                        "inductor_max_nh": (
+                            port.get("inductor_max_nh")
+                            if port.get("inductor_max_nh") is not None
+                            else value.get("inductor_max_nh")
+                        ),
+                        "capacitor_min_pf": (
+                            port.get("capacitor_min_pf")
+                            if port.get("capacitor_min_pf") is not None
+                            else value.get("capacitor_min_pf")
+                        ),
+                        "capacitor_max_pf": (
+                            port.get("capacitor_max_pf")
+                            if port.get("capacitor_max_pf") is not None
+                            else value.get("capacitor_max_pf")
+                        ),
                         "connect_to": target,
                         "signal": port.get("signal"),
                         "start_ghz": port.get("start_ghz"),
@@ -524,6 +548,7 @@ class PortSettingsPanel(QFrame):
         self.setObjectName("panel")
         self.project_root = project_root
         self.capacitors, self.inductors = _component_catalog(project_root)
+        self._optimization_values = _optimization_catalog_values(project_root)
         self._paths: list[Path] = []
         self._pending_settings: dict[tuple[str, int], Mapping[str, Any]] = {}
         self._row_controls: dict[int, dict[str, Any]] = {}
@@ -556,7 +581,7 @@ class PortSettingsPanel(QFrame):
         port_title.setStyleSheet("font-size: 18px; font-weight: 600;")
         port_hint = QLabel(
             "Open is the safe default. Assign signal ports consecutively from s1; the highest "
-            "signal number is the dependent antenna port."
+            "signal number is the dependent antenna port. Tunable ports have independent L/C ranges."
         )
         port_hint.setWordWrap(True)
         port_hint.setStyleSheet("color: #7a7a7a;")
@@ -599,6 +624,42 @@ class PortSettingsPanel(QFrame):
         spin.setSingleStep(0.1)
         spin.setToolTip("0/Auto uses the Touchstone file frequency range")
         return spin
+
+    @staticmethod
+    def _component_range_editor(
+        label: str,
+        unit: str,
+        minimum: float,
+        maximum: float,
+        object_prefix: str,
+    ) -> tuple[QWidget, QDoubleSpinBox, QDoubleSpinBox]:
+        editor = QWidget()
+        layout = QHBoxLayout(editor)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        title = QLabel(label)
+        title.setToolTip(f"Inclusive {label} optimization range for this port")
+        minimum_spin = QDoubleSpinBox()
+        maximum_spin = QDoubleSpinBox()
+        for name, spin, value in (
+            (f"{object_prefix}Minimum", minimum_spin, minimum),
+            (f"{object_prefix}Maximum", maximum_spin, maximum),
+        ):
+            spin.setObjectName(name)
+            spin.setRange(0.0001, 1_000_000.0)
+            spin.setDecimals(4)
+            spin.setSingleStep(0.1)
+            spin.setValue(value)
+            spin.setSuffix(f" {unit}")
+            spin.setMinimumWidth(82)
+            spin.setToolTip(
+                f"Inclusive {label} range for this port; measured BOM parts are filtered before sampling"
+            )
+        layout.addWidget(title)
+        layout.addWidget(minimum_spin)
+        layout.addWidget(QLabel("to"))
+        layout.addWidget(maximum_spin)
+        return editor, minimum_spin, maximum_spin
 
     def set_files(self, paths: Sequence[str | Path]) -> None:
         current = self.settings_by_key()
@@ -646,9 +707,36 @@ class PortSettingsPanel(QFrame):
         signal = QComboBox()
         summary = QLabel()
         summary.setStyleSheet("color: #6e6e73; padding-left: 7px;")
+        inductor_values = self._optimization_values["inductor"]
+        capacitor_values = self._optimization_values["capacitor"]
+        inductor_minimum = setting.get("inductor_min_nh")
+        inductor_maximum = setting.get("inductor_max_nh")
+        capacitor_minimum = setting.get("capacitor_min_pf")
+        capacitor_maximum = setting.get("capacitor_max_pf")
+        inductor_range, inductor_minimum_spin, inductor_maximum_spin = self._component_range_editor(
+            "L",
+            "nH",
+            min(inductor_values) if inductor_minimum is None else float(inductor_minimum),
+            max(inductor_values) if inductor_maximum is None else float(inductor_maximum),
+            f"port{row}Inductor",
+        )
+        capacitor_range, capacitor_minimum_spin, capacitor_maximum_spin = self._component_range_editor(
+            "C",
+            "pF",
+            min(capacitor_values) if capacitor_minimum is None else float(capacitor_minimum),
+            max(capacitor_values) if capacitor_maximum is None else float(capacitor_maximum),
+            f"port{row}Capacitor",
+        )
+        component_page = QWidget()
+        component_layout = QVBoxLayout(component_page)
+        component_layout.setContentsMargins(0, 0, 0, 0)
+        component_layout.setSpacing(3)
+        component_layout.addWidget(component)
+        component_layout.addWidget(inductor_range)
+        component_layout.addWidget(capacitor_range)
         configuration = QStackedWidget()
         configuration.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        for widget in (summary, component, connection, signal):
+        for widget in (summary, component_page, connection, signal):
             configuration.addWidget(widget)
         signal.addItem("—")
         signal.addItems(SIGNALS)
@@ -673,6 +761,13 @@ class PortSettingsPanel(QFrame):
             "configuration": configuration,
             "summary": summary,
             "component": component,
+            "component_page": component_page,
+            "inductor_range": inductor_range,
+            "inductor_min_nh": inductor_minimum_spin,
+            "inductor_max_nh": inductor_maximum_spin,
+            "capacitor_range": capacitor_range,
+            "capacitor_min_pf": capacitor_minimum_spin,
+            "capacitor_max_pf": capacitor_maximum_spin,
             "connection": connection,
             "signal": signal,
         }
@@ -707,12 +802,18 @@ class PortSettingsPanel(QFrame):
         configuration = controls.get("configuration")
         summary = controls.get("summary")
         component = controls.get("component")
+        component_page = controls.get("component_page")
+        inductor_range = controls.get("inductor_range")
+        capacitor_range = controls.get("capacitor_range")
         connection = controls.get("connection")
         signal = controls.get("signal")
         if not (
             isinstance(configuration, QStackedWidget)
             and isinstance(summary, QLabel)
             and isinstance(component, QComboBox)
+            and isinstance(component_page, QWidget)
+            and isinstance(inductor_range, QWidget)
+            and isinstance(capacitor_range, QWidget)
             and isinstance(connection, QComboBox)
             and isinstance(signal, QComboBox)
         ):
@@ -729,14 +830,26 @@ class PortSettingsPanel(QFrame):
         self._set_combo_data(component, previous)
         if mode in ("inductor", "capacitor", "inductor/capacitor", "open/inductor/capacitor"):
             component.setItemText(0, "Optimize within range")
-            configuration.setCurrentWidget(component)
+            inductor_range.setVisible(
+                mode in ("inductor", "inductor/capacitor", "open/inductor/capacitor")
+            )
+            capacitor_range.setVisible(
+                mode in ("capacitor", "inductor/capacitor", "open/inductor/capacitor")
+            )
+            configuration.setCurrentWidget(component_page)
+            both_ranges = mode in ("inductor/capacitor", "open/inductor/capacitor")
+            configuration.setFixedHeight(98 if both_ranges else 66)
         elif mode == "connect":
             configuration.setCurrentWidget(connection)
+            configuration.setFixedHeight(34)
         elif mode == "signal":
             configuration.setCurrentWidget(signal)
+            configuration.setFixedHeight(34)
         else:
             summary.setText("open (no component)" if mode == "open" else "short (0 Ω)")
             configuration.setCurrentWidget(summary)
+            configuration.setFixedHeight(34)
+        self.table.resizeRowToContents(row)
         if not self._rebuilding:
             self._refresh_target_controls()
 
@@ -820,6 +933,18 @@ class PortSettingsPanel(QFrame):
             component = controls.get("component")
             connection = controls.get("connection")
             signal = controls.get("signal")
+            mode_text = mode.currentText()
+            has_inductor_range = mode_text in (
+                "inductor",
+                "inductor/capacitor",
+                "open/inductor/capacitor",
+            )
+            has_capacitor_range = mode_text in (
+                "capacitor",
+                "inductor/capacitor",
+                "open/inductor/capacitor",
+            )
+            has_component_configuration = has_inductor_range or has_capacitor_range
             start = self.frequency_target_table.cellWidget(row, 0)
             stop = self.frequency_target_table.cellWidget(row, 1)
             target_enabled = self.frequency_target_table.cellWidget(row, 2)
@@ -829,8 +954,12 @@ class PortSettingsPanel(QFrame):
                 {
                     "file": str(file_item.data(Qt.UserRole)),
                     "port": int(port_item.text()),
-                    "mode": mode.currentText(),
-                    "component": component.currentData(),
+                    "mode": mode_text,
+                    "component": component.currentData() if has_component_configuration else None,
+                    "inductor_min_nh": controls["inductor_min_nh"].value() if has_inductor_range else None,
+                    "inductor_max_nh": controls["inductor_max_nh"].value() if has_inductor_range else None,
+                    "capacitor_min_pf": controls["capacitor_min_pf"].value() if has_capacitor_range else None,
+                    "capacitor_max_pf": controls["capacitor_max_pf"].value() if has_capacitor_range else None,
                     "connect_to": None if connection.currentText() == "—" else connection.currentText(),
                     "signal": None if signal.currentText() == "—" else signal.currentText(),
                     "start_ghz": None if start.value() == 0 else start.value(),
@@ -1269,29 +1398,10 @@ class MainWindow(QMainWindow):
         )
         self.candidate_count = QSpinBox()
         self.candidate_count.setObjectName("candidateCount")
-        self.candidate_count.setRange(1, 50)
-        self.candidate_count.setValue(2)
+        self.candidate_count.setRange(1, 100)
+        self.candidate_count.setValue(100)
         self.candidate_count.setSuffix(" parts")
         self.candidate_count.setToolTip(candidate_label.toolTip())
-        inductor_values = self._optimization_values["inductor"]
-        capacitor_values = self._optimization_values["capacitor"]
-        self.inductor_min_nh = self._optimization_range_spin(
-            min(inductor_values), " nH", "inductorMinimum"
-        )
-        self.inductor_max_nh = self._optimization_range_spin(
-            max(inductor_values), " nH", "inductorMaximum"
-        )
-        self.capacitor_min_pf = self._optimization_range_spin(
-            min(capacitor_values), " pF", "capacitorMinimum"
-        )
-        self.capacitor_max_pf = self._optimization_range_spin(
-            max(capacitor_values), " pF", "capacitorMaximum"
-        )
-        range_tooltip = (
-            "Inclusive nominal-value range applied to the measured BOM before evenly spaced sampling."
-        )
-        for control in self._optimization_range_controls():
-            control.setToolTip(range_tooltip)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -1303,16 +1413,6 @@ class MainWindow(QMainWindow):
         self.cancel_button.hide()
         progress_layout.addWidget(candidate_label)
         progress_layout.addWidget(self.candidate_count)
-        progress_layout.addSpacing(12)
-        progress_layout.addWidget(QLabel("L range"))
-        progress_layout.addWidget(self.inductor_min_nh)
-        progress_layout.addWidget(QLabel("to"))
-        progress_layout.addWidget(self.inductor_max_nh)
-        progress_layout.addSpacing(12)
-        progress_layout.addWidget(QLabel("C range"))
-        progress_layout.addWidget(self.capacitor_min_pf)
-        progress_layout.addWidget(QLabel("to"))
-        progress_layout.addWidget(self.capacitor_max_pf)
         progress_layout.addSpacing(12)
         progress_layout.addWidget(self.status_label)
         progress_layout.addWidget(self.progress_bar, 1)
@@ -1347,37 +1447,43 @@ class MainWindow(QMainWindow):
         button.clicked.connect(callback)
         return button
 
-    @staticmethod
-    def _optimization_range_spin(value: float, suffix: str, object_name: str) -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
-        spin.setObjectName(object_name)
-        spin.setRange(0.0001, 1_000_000.0)
-        spin.setDecimals(4)
-        spin.setSingleStep(0.1)
-        spin.setValue(value)
-        spin.setSuffix(suffix)
-        spin.setMinimumWidth(96)
-        return spin
-
-    def _optimization_range_controls(self) -> tuple[QDoubleSpinBox, ...]:
-        return (
-            self.inductor_min_nh,
-            self.inductor_max_nh,
-            self.capacitor_min_pf,
-            self.capacitor_max_pf,
-        )
-
     def gui_payload(self) -> dict[str, Any]:
         return {
             "snp_files": [str(path) for path in self.files_panel.paths()],
             "ports": self.port_panel.port_settings(),
             "candidates_per_type": self.candidate_count.value(),
-            "inductor_min_nh": self.inductor_min_nh.value(),
-            "inductor_max_nh": self.inductor_max_nh.value(),
-            "capacitor_min_pf": self.capacitor_min_pf.value(),
-            "capacitor_max_pf": self.capacitor_max_pf.value(),
             "smith_target": self.port_panel.target(),
         }
+
+    def _validate_port_range(
+        self,
+        setting: Mapping[str, Any],
+        label: str,
+        minimum_key: str,
+        maximum_key: str,
+        unit: str,
+        kind: str,
+    ) -> None:
+        minimum_value = setting.get(minimum_key)
+        maximum_value = setting.get(maximum_key)
+        if minimum_value is None and maximum_value is None:
+            return
+        source = f"{Path(setting['file']).name} port {setting['port']}"
+        if minimum_value is None or maximum_value is None:
+            raise ValueError(f"{source}: set both the {label} minimum and maximum.")
+        minimum = float(minimum_value)
+        maximum = float(maximum_value)
+        if not np.isfinite(minimum) or not np.isfinite(maximum):
+            raise ValueError(f"{source}: {label} range must use finite values in {unit}.")
+        if minimum <= 0 or maximum <= 0:
+            raise ValueError(f"{source}: {label} range values must be greater than zero {unit}.")
+        if minimum > maximum:
+            raise ValueError(f"{source}: {label} range minimum must not exceed its maximum.")
+        if not any(minimum <= value <= maximum for value in self._optimization_values[kind]):
+            raise ValueError(
+                f"{source}: no measured {label} part is available from "
+                f"{minimum:g} to {maximum:g} {unit}."
+            )
 
     def _validate_payload(self, payload: Mapping[str, Any]) -> None:
         files = [Path(path) for path in payload.get("snp_files", [])]
@@ -1390,6 +1496,24 @@ class MainWindow(QMainWindow):
         target_signals: list[str] = []
         for setting in payload.get("ports", []):
             mode = setting["mode"]
+            if mode in ("inductor", "inductor/capacitor", "open/inductor/capacitor"):
+                self._validate_port_range(
+                    setting,
+                    "inductor",
+                    "inductor_min_nh",
+                    "inductor_max_nh",
+                    "nH",
+                    "inductor",
+                )
+            if mode in ("capacitor", "inductor/capacitor", "open/inductor/capacitor"):
+                self._validate_port_range(
+                    setting,
+                    "capacitor",
+                    "capacitor_min_pf",
+                    "capacitor_max_pf",
+                    "pF",
+                    "capacitor",
+                )
             if mode == "connect" and not setting.get("connect_to"):
                 raise ValueError(f"{Path(setting['file']).name} port {setting['port']} needs a connection target.")
             if mode == "signal":
@@ -1426,23 +1550,6 @@ class MainWindow(QMainWindow):
                 raise ValueError("Smith target resistance must be a finite value of zero ohms or greater.")
             if reference <= 0:
                 raise ValueError("Smith target reference impedance must be greater than zero.")
-        for label, minimum_key, maximum_key, unit, kind in (
-            ("Inductor", "inductor_min_nh", "inductor_max_nh", "nH", "inductor"),
-            ("Capacitor", "capacitor_min_pf", "capacitor_max_pf", "pF", "capacitor"),
-        ):
-            minimum = float(payload[minimum_key])
-            maximum = float(payload[maximum_key])
-            if not np.isfinite(minimum) or not np.isfinite(maximum):
-                raise ValueError(f"{label} optimization range must use finite values in {unit}.")
-            if minimum <= 0 or maximum <= 0:
-                raise ValueError(f"{label} optimization range values must be greater than zero {unit}.")
-            if minimum > maximum:
-                raise ValueError(f"{label} optimization range minimum must not exceed its maximum.")
-            if not any(minimum <= value <= maximum for value in self._optimization_values[kind]):
-                raise ValueError(
-                    f"No measured {label.lower()} part is available from {minimum:g} to {maximum:g} {unit}."
-                )
-
     def current_config(self) -> Any:
         payload = self.gui_payload()
         self._validate_payload(payload)
@@ -1525,8 +1632,6 @@ class MainWindow(QMainWindow):
         self.run_optimization_button.setEnabled(False)
         self.run_cascade_button.setEnabled(False)
         self.candidate_count.setEnabled(False)
-        for control in self._optimization_range_controls():
-            control.setEnabled(False)
         self.progress_bar.setValue(0)
         self.progress_bar.show()
         self.cancel_button.show()
@@ -1599,8 +1704,6 @@ class MainWindow(QMainWindow):
         self.run_optimization_button.setEnabled(True)
         self.run_cascade_button.setEnabled(True)
         self.candidate_count.setEnabled(True)
-        for control in self._optimization_range_controls():
-            control.setEnabled(True)
         self.cancel_button.setEnabled(True)
         self.cancel_button.hide()
         self.progress_bar.hide()
@@ -1649,27 +1752,6 @@ class MainWindow(QMainWindow):
             for port in payload.get("ports", []):
                 port["file"] = normalized.get(str(port.get("file", "")), str(port.get("file", "")))
             self.candidate_count.setValue(int(payload.get("candidates_per_type", 2)))
-            for kind, minimum_control, maximum_control, minimum_key, maximum_key in (
-                (
-                    "inductor",
-                    self.inductor_min_nh,
-                    self.inductor_max_nh,
-                    "inductor_min_nh",
-                    "inductor_max_nh",
-                ),
-                (
-                    "capacitor",
-                    self.capacitor_min_pf,
-                    self.capacitor_max_pf,
-                    "capacitor_min_pf",
-                    "capacitor_max_pf",
-                ),
-            ):
-                values = self._optimization_values[kind]
-                minimum = payload.get(minimum_key)
-                maximum = payload.get(maximum_key)
-                minimum_control.setValue(min(values) if minimum is None else float(minimum))
-                maximum_control.setValue(max(values) if maximum is None else float(maximum))
             self.port_panel.apply_mapping(payload)
             self.files_panel.set_paths(files)
             self.status_label.setText(f"Loaded {Path(filename).name}")

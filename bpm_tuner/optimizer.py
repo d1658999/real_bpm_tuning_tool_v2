@@ -104,13 +104,9 @@ class FleetOptimizer:
 
         slots = self._slots(config)
         options_per_slot = [
-            self._options(
+            self._options_for_port(
+                config,
                 config.networks[network_index].ports[port_index],
-                config.candidates_per_type,
-                inductor_min_nh=config.inductor_min_nh,
-                inductor_max_nh=config.inductor_max_nh,
-                capacitor_min_pf=config.capacitor_min_pf,
-                capacitor_max_pf=config.capacitor_max_pf,
             )
             for network_index, port_index in slots
         ]
@@ -196,6 +192,26 @@ class FleetOptimizer:
         if not result:
             raise ValueError(f"No real BOM candidates are available for {port.mode.value}.")
         return result
+
+    def _options_for_port(
+        self,
+        config: ProjectConfig,
+        port: PortConfig,
+    ) -> list[BOMComponent | None]:
+        """Apply a port's value windows, with legacy project-wide fallback."""
+
+        def port_or_project(name: str) -> float | None:
+            value = getattr(port, name)
+            return value if value is not None else getattr(config, name)
+
+        return self._options(
+            port,
+            config.candidates_per_type,
+            inductor_min_nh=port_or_project("inductor_min_nh"),
+            inductor_max_nh=port_or_project("inductor_max_nh"),
+            capacitor_min_pf=port_or_project("capacitor_min_pf"),
+            capacitor_max_pf=port_or_project("capacitor_max_pf"),
+        )
 
     def _build_sweep_base(
         self, config: ProjectConfig, slots: list[tuple[int, int]]
@@ -357,6 +373,10 @@ class FleetOptimizer:
                 # not another tunable open/L/C search state.
                 port.mode = ConnectionType.OPEN
                 port.component_path = None
+                port.inductor_min_nh = None
+                port.inductor_max_nh = None
+                port.capacitor_min_pf = None
+                port.capacitor_max_pf = None
             else:
                 port.mode = (
                     ConnectionType.CAPACITOR
@@ -364,6 +384,12 @@ class FleetOptimizer:
                     else ConnectionType.INDUCTOR
                 )
                 port.component_path = str(selected.path.relative_to(self.root))
+                if selected.kind == "capacitor":
+                    port.inductor_min_nh = None
+                    port.inductor_max_nh = None
+                else:
+                    port.capacitor_min_pf = None
+                    port.capacitor_max_pf = None
         return config
 
     @staticmethod
@@ -434,13 +460,9 @@ class FleetOptimizer:
         self.ranker.ensure_built()
         slots = self._slots(config)
         options_per_slot = [
-            self._options(
+            self._options_for_port(
+                config,
                 config.networks[network_index].ports[port_index],
-                config.candidates_per_type,
-                inductor_min_nh=config.inductor_min_nh,
-                inductor_max_nh=config.inductor_max_nh,
-                capacitor_min_pf=config.capacitor_min_pf,
-                capacitor_max_pf=config.capacitor_max_pf,
             )
             for network_index, port_index in slots
         ]
