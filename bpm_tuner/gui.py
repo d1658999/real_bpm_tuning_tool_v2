@@ -1347,9 +1347,40 @@ class MainWindow(QMainWindow):
         try:
             config = self.current_config()
             runner = CoreAPI.new_optimizer(config)
+            estimate_method = getattr(runner, "estimate", None)
+            estimate = estimate_method(config) if callable(estimate_method) else None
         except Exception as exc:
             self._show_error("Optimization could not start", exc)
             return
+        if estimate is not None and (
+            bool(getattr(estimate, "exceeds_combination_limit", False))
+            or bool(getattr(estimate, "exceeds_time_limit", False))
+        ):
+            combination_count = int(getattr(estimate, "combination_count", 0))
+            estimated_seconds = float(getattr(estimate, "estimated_sweep_seconds", 0.0))
+            reasons: list[str] = []
+            if getattr(estimate, "exceeds_combination_limit", False):
+                reasons.append(
+                    f"the search contains {combination_count:,} combinations, above the "
+                    "100,000,000-combination limit"
+                )
+            if getattr(estimate, "exceeds_time_limit", False):
+                reasons.append(
+                    f"the estimated native sweep is {estimated_seconds / 60:.1f} minutes, "
+                    "above the 10-minute target"
+                )
+            answer = QMessageBox.warning(
+                self,
+                "Large optimization search",
+                "This optimization may take too long because "
+                + " and ".join(reasons)
+                + ".\n\nReduce BOM samples/type or the number of tunable ports, "
+                "or continue with the current exhaustive search?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
         self.optimization_thread = QThread(self)
         self.optimization_worker = OptimizationWorker(config, runner)
         self.optimization_worker.moveToThread(self.optimization_thread)

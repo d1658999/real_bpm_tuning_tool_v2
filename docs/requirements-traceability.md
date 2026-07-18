@@ -32,7 +32,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | R-09 | Multiport signal bands: for N assigned signals, the highest signal is dependent and preceding signals can have individual bands | Per-signal optional bands with dependency validation | Unit tests for two-, three-, and four-signal configurations |
 | R-10 | Optional non-normalized Smith-chart impedance targets per driven signal, disabled individually by default | Port-level resistance/reactance are stored in ohms and converted to Γ; dynamic controls exclude the final dependent antenna signal | Two/three/four-port scope validation, conversion, JSON migration, GUI, metrics, and plot tests |
 | R-11 | Run cascade of configured Touchstone networks | scikit-rf circuit/cascade service with frequency interpolation and explicit terminations | Integration run on supplied files; finite S-parameter assertions |
-| R-12 | Run optimization through Rust | Python exposes signal/tunable ports once; Rust performs the exhaustive parallel rank-one termination sweep, rejects non-passive signal results, and returns every combination metric | Rust unit tests plus binary-bridge, passivity-regression, and RF integration tests |
+| R-12 | Run optimization through Rust | Python exposes signal/tunable ports once; Rust performs the exhaustive parallel rank-one termination sweep, rejects non-passive signal results, and reduces the five exact strategy winners without materializing the full Cartesian result set in Python | Rust unit tests plus binary-bridge, passivity-regression, winner-parity, and RF integration tests |
 | R-13 | Complex calculations use Rust; Python owns GUI/integration | Rust performs candidate scoring/search loop; Python/scikit-rf performs network I/O and final verification | Source/build audit; parity test on a small candidate set |
 | R-14 | Supplied fleet topology and 3.3-5 GHz configuration can be represented | Seed/sample project mirrors all file/port assignments in `fleet.txt` | Configuration validation and cascade integration test |
 
@@ -58,7 +58,7 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 | G-07 | Save and Load Config as JSON | Versioned JSON serialization with relative/source paths | Round-trip test and malformed-file error test |
 | G-08 | Export current cascade as `.sNp` | scikit-rf Touchstone writer preserves port count | Export/read-back integration test |
 | G-09 | Export insertion loss as CSV | CSV includes frequency and S21 dB columns | Export schema/value test |
-| G-10 | Show optimization percentage/progress and allow cancellation | Worker thread/process receives Rust progress and cooperative cancel token; GUI exposes sampled BOM parts/type with an exponential-search warning | Runner callback/cancellation and GUI config round-trip tests; GUI smoke test |
+| G-10 | Show optimization percentage/progress and allow cancellation | Worker thread/process receives Rust progress and cooperative cancel token; GUI exposes sampled BOM parts/type with 100-million-combination and estimated 10-minute warnings | Runner callback/cancellation, winner-mode parity, and GUI config round-trip tests; GUI smoke test |
 | G-11 | Invalid settings or failures produce an actionable warning | Exception boundary turns failures into user-facing messages without hanging | Unit tests for service errors; GUI smoke test |
 
 ## Reports and result artifacts
@@ -79,6 +79,16 @@ This matrix translates `Requirements.md`, `fleet.txt`, and `DESIGN-apple.md` int
 |---|---|---|---|
 | D-01 | Follow `DESIGN-apple.md` | Desktop theme uses system/SF-like fonts, white/parchment/near-black surfaces, #0066cc action color, restrained hairlines, pill primary actions and no decorative gradients | Palette/style constants test where practical; screenshot review |
 | D-02 | UI remains usable across desktop sizes and controls meet roughly 44 px targets | Splitters, scroll areas and minimum control heights | Manual checks at supported Windows display scaling |
+
+## Optimization time-consumption acceptance
+
+The native optimizer now evaluates the required six-slot, seven-sample case
+(`15^6 = 11,390,625` combinations) with shared prefix states and bounded
+winner reduction. The GUI warns above the specified 100,000,000-combination
+ceiling and when a conservative preflight estimate exceeds ten minutes; the
+runner also reports a post-sweep warning if the measured native sweep exceeds
+ten minutes. Benchmark the actual machine and frequency grid before using a
+large production run as a schedule commitment.
 
 ## Test commands
 

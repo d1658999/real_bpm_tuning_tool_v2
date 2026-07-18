@@ -162,3 +162,8 @@
 
 - The final `risk_score` SHALL be rounded to four decimal places.
 - The +/-5% component-tolerance evaluation is a conservative production-risk proxy; it SHALL NOT be presented as a measured yield, defect rate, or statistical process-capability result.
+
+
+### Optimization time consumption
+- The criteria for optimization time consumption is that the optimization time should be less than 10 minutes for 6 ports with 7 `candidates_per_type`. For example, if user has 6 ports and choose `Open/Inductor/Capacitor` and set `candidates_per_type` to 7, the combination count is (2*7+1)^6 = 15^6 = 11,390,625 combinations. The optimization time should be less than 10 minutes for this case. If the optimization time is more than 10 minutes, the tool should show a warning message to user and suggest user to reduce the `candidates_per_type` or reduce the number of ports.
+- The maximum combination count is less than 0.1 billion because the optimization time will be too long and the memory consumption will be too high. If the combination count is more than 0.1 billion, the tool should show a warning message to user and suggest user to reduce the `candidates_per_type` or reduce the number of ports.

@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from math import prod
 from pathlib import Path
+from time import perf_counter
 from typing import Callable
 
 import numpy as np
@@ -31,6 +32,13 @@ AGENT_NAMES = {
     "smith_contour": "Senior_engineer_Agent_4",
     "minimum_insertion_loss": "Senior_engineer_Agent_5",
 }
+
+MAX_COMBINATIONS = 100_000_000
+OPTIMIZATION_TIME_LIMIT_SECONDS = 10 * 60
+# Conservative planning throughput for the native sweep. The actual elapsed
+# time is reported after the sweep; this estimate is only used for the GUI's
+# preflight warning and scales with both combinations and frequency points.
+ESTIMATED_COMBO_POINT_RATE = 100_000_000.0
 
 
 class OptimizationCancelled(RuntimeError):
@@ -61,6 +69,20 @@ class OptimizationReport:
 
 
 @dataclass(frozen=True)
+class OptimizationEstimate:
+    combination_count: int
+    estimated_sweep_seconds: float
+
+    @property
+    def exceeds_combination_limit(self) -> bool:
+        return self.combination_count > MAX_COMBINATIONS
+
+    @property
+    def exceeds_time_limit(self) -> bool:
+        return self.estimated_sweep_seconds > OPTIMIZATION_TIME_LIMIT_SECONDS
+
+
+@dataclass(frozen=True)
 class _EvaluatedCombination:
     candidate_id: str
     combination: tuple[int, ...]
@@ -76,6 +98,23 @@ class FleetOptimizer:
         self.engine = CircuitEngine(self.root)
         self.ranker = RustOptimizer(self.root)
         self.bom = load_bom(self.root)
+
+    def estimate(self, config: ProjectConfig) -> OptimizationEstimate:
+        """Estimate the exhaustive search size before starting native work."""
+
+        slots = self._slots(config)
+        options_per_slot = [
+            self._options(
+                config.networks[network_index].ports[port_index],
+                config.candidates_per_type,
+            )
+            for network_index, port_index in slots
+        ]
+        combination_count = prod(len(options) for options in options_per_slot)
+        estimated_seconds = (
+            combination_count * max(config.points, 1) / ESTIMATED_COMBO_POINT_RATE
+        )
+        return OptimizationEstimate(combination_count, estimated_seconds)
 
     @staticmethod
     def _slots(config: ProjectConfig) -> list[tuple[int, int]]:
@@ -362,8 +401,17 @@ class FleetOptimizer:
             for network_index, port_index in slots
         ]
         total_combinations = prod(len(options) for options in options_per_slot)
+        warning = None
+        if total_combinations > MAX_COMBINATIONS:
+            warning = (
+                f"Warning: {total_combinations:,} combinations exceed the "
+                f"{MAX_COMBINATIONS:,} maximum. Reduce candidates_per_type or the number of ports."
+            )
         if progress_callback:
-            progress_callback(2, f"Building Rust sweep for {total_combinations:,} BOM combinations")
+            progress_callback(
+                2,
+                warning or f"Building Rust sweep for {total_combinations:,} BOM combinations",
+            )
         self._check_cancelled(cancel_callback)
 
         base_network = self._build_sweep_base(config, slots)
@@ -375,8 +423,16 @@ class FleetOptimizer:
         termination_matrices, gamma_cache = self._termination_matrices(
             options_per_slot, base_network.frequency
         )
+        termination_component_counts = [
+            np.asarray(
+                [0 if option is None else 1 for option in options],
+                dtype=np.uint64,
+            )
+            for options in options_per_slot
+        ]
         if progress_callback:
             progress_callback(8, "Rust is evaluating all target-aware BOM combinations")
+        sweep_started = perf_counter()
         try:
             sweep_scores = self.ranker.sweep(
                 base_network.s,
@@ -384,14 +440,28 @@ class FleetOptimizer:
                 evaluation_ranges,
                 target_gamma,
                 cancel_callback,
+                return_winners=True,
+                termination_component_counts=termination_component_counts,
             )
         except RustKernelCancelled as exc:
             raise OptimizationCancelled(str(exc)) from exc
+        sweep_seconds = perf_counter() - sweep_started
         self._check_cancelled(cancel_callback)
         if not sweep_scores:
             raise ValueError("The Rust optimizer produced no valid BOM combinations.")
         if progress_callback:
-            progress_callback(65, f"Rust evaluated {len(sweep_scores):,} BOM combinations")
+            if sweep_seconds > OPTIMIZATION_TIME_LIMIT_SECONDS:
+                progress_callback(
+                    65,
+                    f"Warning: optimization sweep took {sweep_seconds / 60:.1f} minutes; "
+                    "reduce candidates_per_type or the number of ports for a faster run.",
+                )
+            else:
+                progress_callback(
+                    65,
+                    f"Rust evaluated all {total_combinations:,} BOM combinations "
+                    f"in {sweep_seconds:.1f}s",
+                )
 
         evaluated: list[_EvaluatedCombination] = []
         for index, score in enumerate(sweep_scores):
@@ -406,11 +476,14 @@ class FleetOptimizer:
                     metrics=self._metrics_from_sweep(score, component_count),
                 )
             )
-        candidate_scores = [self._ranking_score(candidate) for candidate in evaluated]
-        by_id = {candidate.candidate_id: candidate for candidate in evaluated}
-        winners = {
-            strategy: by_id[self.ranker.rank(strategy, candidate_scores)] for strategy in STRATEGIES
-        }
+        if len(evaluated) != len(STRATEGIES):
+            raise ValueError(
+                f"The Rust optimizer returned {len(evaluated)} winners; expected {len(STRATEGIES)}."
+            )
+        # Winner rows are emitted in the canonical reference strategy order.
+        # Ranking stays inside the exhaustive Rust traversal, so Python never
+        # builds a candidate list proportional to the Cartesian product.
+        winners = dict(zip(STRATEGIES, evaluated, strict=True))
 
         agent_results: list[AgentResult] = []
         tolerance_cache: dict[tuple[int, ...], PerformanceMetrics] = {}

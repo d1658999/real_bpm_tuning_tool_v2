@@ -23,7 +23,7 @@ bpm-tuner --gui
 2. Assign every active port in the middle panel's **Port configuration** table. Connections must be reciprocal, and signal names must be unique and consecutive from `s1` (two to four total). A file that is not yet part of the circuit may remain in the project when every one of its ports is `open`; it is ignored by cascade and optimization.
 3. Use the compact **Frequency and Smith targets** table above Port configuration to set start/stop frequencies and optional impedance targets. It automatically shows only the driven signal rows (`s1`, then `s2`/`s3` when applicable); the dependent final signal is omitted. `Auto` uses the full Touchstone frequency range. Smith targets are off by default. Enable targets individually and enter physical resistance/reactance in ohms—for example, `50 + j0 Ω` targets the center of a 50-ohm Smith chart.
 4. Leave `open/inductor/capacitor` unselected to use a true open baseline and let optimization choose a measured capacitor or inductor. A saved agent result resolves that flexible state to the actual winning `open`, `capacitor`, or `inductor`, so loading it restores a fixed circuit.
-5. Set **BOM samples/type** before optimization. The default is 2; increasing it covers more real parts but multiplies the Cartesian search at every tunable port, so runtime and memory grow exponentially.
+5. Set **BOM samples/type** before optimization. The default is 2; increasing it covers more real parts but multiplies the Cartesian search at every tunable port. The GUI warns before searches above 100,000,000 combinations or an estimated 10-minute native sweep.
 6. Use **Run Cascade** to simulate the selected configuration or **Run Optimization** to run all five strategies. Optimization progress and cancellation are shown at the top.
 7. Save/load JSON configurations, export the cascaded Touchstone network and S21 CSV, or save the combined plot.
 
@@ -47,7 +47,7 @@ For a more granular production study, increase `--candidates`. The optimizer eva
 
 The five result strategies are `minimum_bom`, `balanced`, `minimum_target`, `smith_contour`, and `minimum_insertion_loss`. Each winner receives an independent `1.00/0.95/1.05` component-value tolerance sweep before the Principal Engineer applies the normalized production-risk score documented in `Requirements.md`.
 
-The Rust sweep rejects a result when an evaluated signal reflection or transmission magnitude exceeds the passive limit. This prevents a numerically active point outside the Smith circle from winning merely because it is close to a near-edge Smith target. If several agents produce the same lowest risk, the Principal Engineer keeps the declared reference agent order; identical results are not forced to look different.
+The Rust sweep rejects a result when an evaluated signal reflection or transmission magnitude exceeds the passive limit. This prevents a numerically active point outside the Smith circle from winning merely because it is close to a near-edge Smith target. The exhaustive traversal shares every evaluated termination prefix across its descendants and reduces the five strategy winners in Rust, so production optimization does not materialize one Python object per combination. If several agents produce the same lowest risk, the Principal Engineer keeps the declared reference agent order; identical results are not forced to look different.
 
 Outputs include one JSON configuration and one combined PNG per agent, an agent comparison PNG, the final decision PNG, and `report.md`.
 

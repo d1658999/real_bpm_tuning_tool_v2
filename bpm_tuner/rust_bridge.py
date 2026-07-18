@@ -56,7 +56,7 @@ class SweepScore:
 class RustOptimizer:
     """Build and invoke the exhaustive Rust RF sweep and ranking kernel."""
 
-    _SWEEP_INPUT_MAGIC = b"BPMSWP01"
+    _SWEEP_INPUT_MAGIC = b"BPMSWP02"
     _SWEEP_OUTPUT_MAGIC = b"BPMOUT01"
 
     def __init__(self, root: str | Path):
@@ -152,8 +152,18 @@ class RustOptimizer:
         evaluation_ranges: list[tuple[int, int]],
         target_gamma: np.ndarray,
         cancel_callback: Callable[[], bool] | None = None,
+        *,
+        return_winners: bool = False,
+        termination_component_counts: list[np.ndarray] | None = None,
     ) -> list[SweepScore]:
-        """Evaluate every termination combination in parallel inside Rust."""
+        """Evaluate every termination combination in parallel inside Rust.
+
+        The compatibility default returns every score. Fleet optimization uses
+        ``return_winners=True`` so Rust still evaluates the complete Cartesian
+        product but retains only the five exact strategy winners. This avoids
+        materializing hundreds of megabytes of duplicate Python/Rust result
+        state for a large production sweep.
+        """
         executable = self.ensure_built()
         base_s = np.asarray(base_s, dtype=np.complex128)
         target_gamma = np.asarray(target_gamma, dtype=np.complex128)
@@ -171,6 +181,19 @@ class RustOptimizer:
             if array.ndim != 2 or array.shape[0] < 1 or array.shape[1] != nfreq:
                 raise RustKernelError("Each termination matrix must have shape (candidate, frequency).")
             normalized_gammas.append(array)
+        if termination_component_counts is None:
+            normalized_costs = [np.ones(values.shape[0], dtype=np.uint64) for values in normalized_gammas]
+        else:
+            if len(termination_component_counts) != len(normalized_gammas):
+                raise RustKernelError("Component-count metadata must match tunable ports.")
+            normalized_costs = []
+            for values, costs in zip(normalized_gammas, termination_component_counts, strict=True):
+                array = np.asarray(costs, dtype=np.uint64)
+                if array.ndim != 1 or array.shape[0] != values.shape[0]:
+                    raise RustKernelError("Each component-count vector must match its gamma rows.")
+                normalized_costs.append(array)
+        if return_winners and any(np.any(costs > 1) for costs in normalized_costs):
+            raise RustKernelError("Component-count metadata must contain only zero or one.")
 
         work = self.root / ".bpm_work"
         work.mkdir(exist_ok=True)
@@ -179,15 +202,26 @@ class RustOptimizer:
         output_path = work / f"sweep-{token}.out"
         try:
             payload = bytearray(self._SWEEP_INPUT_MAGIC)
-            payload.extend(struct.pack("<QQQQ", nfreq, nports, nsignals, len(normalized_gammas)))
+            payload.extend(
+                struct.pack(
+                    "<QQQQQ",
+                    nfreq,
+                    nports,
+                    nsignals,
+                    len(normalized_gammas),
+                    int(return_winners),
+                )
+            )
             for start, stop in evaluation_ranges:
                 if not 0 <= start <= stop < nfreq:
                     raise RustKernelError("Sweep evaluation ranges must be valid inclusive indexes.")
                 payload.extend(struct.pack("<QQ", start, stop))
             payload.extend(self._complex_bytes(base_s))
             payload.extend(self._complex_bytes(target_gamma))
-            for values in normalized_gammas:
+            for index, values in enumerate(normalized_gammas):
                 payload.extend(struct.pack("<Q", values.shape[0]))
+                costs = normalized_costs[index]
+                payload.extend(struct.pack(f"<{len(costs)}Q", *[int(value) for value in costs]))
                 payload.extend(self._complex_bytes(values))
             input_path.write_bytes(payload)
 
@@ -211,7 +245,12 @@ class RustOptimizer:
             stdout, stderr = process.communicate()
             if process.returncode:
                 raise RustKernelError(stderr.strip() or stdout.strip() or "Rust RF sweep failed.")
-            return self._read_sweep_output(output_path, len(normalized_gammas))
+            results = self._read_sweep_output(output_path, len(normalized_gammas))
+            if return_winners and len(results) != 5:
+                raise RustKernelError(
+                    f"Rust optimizer returned {len(results)} winners; expected five strategies."
+                )
+            return results
         finally:
             input_path.unlink(missing_ok=True)
             output_path.unlink(missing_ok=True)

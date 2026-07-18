@@ -23,7 +23,7 @@ const EXPECTED_COLUMNS: [&str; 9] = [
     "target_ant",
     "target_spread",
 ];
-const SWEEP_INPUT_MAGIC: &[u8; 8] = b"BPMSWP01";
+const SWEEP_INPUT_MAGIC: &[u8; 8] = b"BPMSWP02";
 const SWEEP_OUTPUT_MAGIC: &[u8; 8] = b"BPMOUT01";
 const PASSIVITY_LIMIT: f64 = 1.0 + 1e-9;
 const INVALID_RF_PENALTY: f64 = 1e6;
@@ -377,6 +377,8 @@ struct SweepProblem {
     base_s: Vec<Complex>,
     target_gamma: Vec<Complex>,
     gammas: Vec<Vec<Vec<Complex>>>,
+    bom_counts: Vec<Vec<u32>>,
+    return_winners: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -389,12 +391,63 @@ struct SweepResult {
     combination: Vec<usize>,
 }
 
+#[derive(Debug, Clone)]
+struct SweepCandidate {
+    linear_index: usize,
+    bom_count: u32,
+    vswr_non_ant: f64,
+    vswr_ant: f64,
+    worst_il_db: f64,
+    target_non_ant: f64,
+    target_ant: f64,
+    target_spread: f64,
+    combination: Vec<usize>,
+}
+
+impl SweepCandidate {
+    fn target_max(&self) -> f64 {
+        self.target_non_ant.max(self.target_ant)
+    }
+
+    fn smith_score(&self) -> f64 {
+        self.target_max() + self.target_spread
+    }
+
+    fn as_result(&self) -> SweepResult {
+        SweepResult {
+            vswr_non_ant: self.vswr_non_ant,
+            vswr_ant: self.vswr_ant,
+            worst_il_db: self.worst_il_db,
+            target_non_ant: self.target_non_ant,
+            target_ant: self.target_ant,
+            combination: self.combination.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct SweepAccumulator {
+    results: Vec<SweepResult>,
+    minimum_target: Option<SweepCandidate>,
+    smith_contour: Option<SweepCandidate>,
+    frontier: Vec<SweepCandidate>,
+    bom_frontiers: Vec<Vec<SweepCandidate>>,
+    target_max_range: (f64, f64),
+    loss_range: (f64, f64),
+    target_non_ant_floor: f64,
+}
+
 /// Run an exhaustive, parallel termination sweep using the bridge binary format.
 pub fn sweep_file(input_path: &Path, output_path: &Path) -> Result<(), Error> {
     let bytes = fs::read(input_path)
         .map_err(|error| Error::new(format!("cannot read sweep input: {error}")))?;
     let problem = parse_sweep_problem(&bytes)?;
-    let results = sweep_problem(&problem)?;
+    let accumulator = sweep_problem(&problem)?;
+    let results = if problem.return_winners {
+        accumulator.winners()?
+    } else {
+        accumulator.results
+    };
     write_sweep_results(output_path, &results, problem.gammas.len())
 }
 
@@ -407,6 +460,11 @@ fn parse_sweep_problem(bytes: &[u8]) -> Result<SweepProblem, Error> {
     let nports = cursor.usize()?;
     let nsignals = cursor.usize()?;
     let ntunable = cursor.usize()?;
+    let return_winners = match cursor.usize()? {
+        0 => false,
+        1 => true,
+        _ => return Err(Error::new("invalid sweep output mode")),
+    };
     if nfreq == 0 || nsignals < 2 || nports != nsignals + ntunable {
         return Err(Error::new("invalid sweep dimensions"));
     }
@@ -430,16 +488,21 @@ fn parse_sweep_problem(bytes: &[u8]) -> Result<SweepProblem, Error> {
             .ok_or_else(|| Error::new("target matrix is too large"))?,
     )?;
     let mut gammas = Vec::with_capacity(ntunable);
+    let mut bom_counts = Vec::with_capacity(ntunable);
     for _ in 0..ntunable {
         let count = cursor.usize()?;
         if count == 0 {
             return Err(Error::new("each tunable port needs at least one candidate"));
         }
+        let costs = (0..count)
+            .map(|_| cursor.usize().map(|value| value as u32))
+            .collect::<Result<Vec<_>, _>>()?;
         let flat = cursor.complex_vec(
             count
                 .checked_mul(nfreq)
                 .ok_or_else(|| Error::new("termination matrix is too large"))?,
         )?;
+        bom_counts.push(costs);
         gammas.push(flat.chunks_exact(nfreq).map(|row| row.to_vec()).collect());
     }
     if cursor.remaining() != 0 {
@@ -453,10 +516,183 @@ fn parse_sweep_problem(bytes: &[u8]) -> Result<SweepProblem, Error> {
         base_s,
         target_gamma,
         gammas,
+        bom_counts,
+        return_winners,
     })
 }
 
-fn sweep_problem(problem: &SweepProblem) -> Result<Vec<SweepResult>, Error> {
+impl SweepAccumulator {
+    fn new(retain_all: bool, total: usize, ntunable: usize) -> Self {
+        Self {
+            results: if retain_all {
+                Vec::with_capacity(total)
+            } else {
+                Vec::new()
+            },
+            minimum_target: None,
+            smith_contour: None,
+            frontier: Vec::new(),
+            bom_frontiers: vec![Vec::new(); ntunable + 1],
+            target_max_range: (f64::INFINITY, f64::NEG_INFINITY),
+            loss_range: (f64::INFINITY, f64::NEG_INFINITY),
+            target_non_ant_floor: f64::INFINITY,
+        }
+    }
+
+    fn observe(
+        &mut self,
+        problem: &SweepProblem,
+        linear_index: usize,
+        combination: &[usize],
+        metrics: (f64, f64, f64, f64, f64),
+    ) {
+        let (vswr_non_ant, vswr_ant, worst_il_db, target_non_ant, target_ant) = metrics;
+        if problem.return_winners {
+            let candidate = SweepCandidate {
+                linear_index,
+                bom_count: combination
+                    .iter()
+                    .enumerate()
+                    .map(|(port, index)| problem.bom_counts[port][*index])
+                    .sum(),
+                vswr_non_ant,
+                vswr_ant,
+                worst_il_db,
+                target_non_ant,
+                target_ant,
+                target_spread: (target_non_ant - target_ant).abs(),
+                combination: combination.to_vec(),
+            };
+            self.target_max_range.0 = self.target_max_range.0.min(candidate.target_max());
+            self.target_max_range.1 = self.target_max_range.1.max(candidate.target_max());
+            self.loss_range.0 = self.loss_range.0.min(candidate.worst_il_db);
+            self.loss_range.1 = self.loss_range.1.max(candidate.worst_il_db);
+            self.target_non_ant_floor = self.target_non_ant_floor.min(candidate.target_non_ant);
+
+            if self
+                .minimum_target
+                .as_ref()
+                .is_none_or(|current| better_sweep_minimum_target(&candidate, current))
+            {
+                self.minimum_target = Some(candidate.clone());
+            }
+            if self
+                .smith_contour
+                .as_ref()
+                .is_none_or(|current| better_sweep_smith_contour(&candidate, current))
+            {
+                self.smith_contour = Some(candidate.clone());
+            }
+            insert_pareto(&mut self.frontier, candidate.clone());
+            let bom_count = candidate.bom_count as usize;
+            insert_bom_pareto(&mut self.bom_frontiers[bom_count], candidate);
+        } else {
+            self.results.push(SweepResult {
+                vswr_non_ant,
+                vswr_ant,
+                worst_il_db,
+                target_non_ant,
+                target_ant,
+                combination: combination.to_vec(),
+            });
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        if !self.results.is_empty() || !other.results.is_empty() {
+            self.results.extend(other.results);
+            return;
+        }
+
+        self.target_max_range.0 = self.target_max_range.0.min(other.target_max_range.0);
+        self.target_max_range.1 = self.target_max_range.1.max(other.target_max_range.1);
+        self.loss_range.0 = self.loss_range.0.min(other.loss_range.0);
+        self.loss_range.1 = self.loss_range.1.max(other.loss_range.1);
+        self.target_non_ant_floor = self.target_non_ant_floor.min(other.target_non_ant_floor);
+
+        if let Some(candidate) = other.minimum_target {
+            if self
+                .minimum_target
+                .as_ref()
+                .is_none_or(|current| better_sweep_minimum_target(&candidate, current))
+            {
+                self.minimum_target = Some(candidate);
+            }
+        }
+        if let Some(candidate) = other.smith_contour {
+            if self
+                .smith_contour
+                .as_ref()
+                .is_none_or(|current| better_sweep_smith_contour(&candidate, current))
+            {
+                self.smith_contour = Some(candidate);
+            }
+        }
+        for candidate in other.frontier {
+            insert_pareto(&mut self.frontier, candidate);
+        }
+        for (index, candidates) in other.bom_frontiers.into_iter().enumerate() {
+            for candidate in candidates {
+                insert_bom_pareto(&mut self.bom_frontiers[index], candidate);
+            }
+        }
+    }
+
+    fn winners(self) -> Result<Vec<SweepResult>, Error> {
+        let minimum_target = self
+            .minimum_target
+            .ok_or_else(|| Error::new("Rust sweep produced no candidates"))?;
+        let smith_contour = self
+            .smith_contour
+            .ok_or_else(|| Error::new("Rust sweep produced no candidates"))?;
+
+        let threshold = self.target_non_ant_floor * 1.10;
+        let minimum_bom = self
+            .bom_frontiers
+            .iter()
+            .flat_map(|candidates| candidates.iter())
+            .filter(|candidate| candidate.target_non_ant <= threshold)
+            .min_by(|left, right| compare_minimum_bom(left, right))
+            .ok_or_else(|| Error::new("Rust sweep produced no minimum-BOM candidate"))?;
+
+        let balanced = self
+            .frontier
+            .iter()
+            .min_by(|left, right| {
+                balanced_score_sweep(left, self.target_max_range, self.loss_range)
+                    .total_cmp(&balanced_score_sweep(
+                        right,
+                        self.target_max_range,
+                        self.loss_range,
+                    ))
+                    .then_with(|| compare_sweep_minimum_target(left, right))
+            })
+            .ok_or_else(|| Error::new("Rust sweep produced no balanced candidate"))?;
+
+        let target_floor = self
+            .frontier
+            .iter()
+            .map(SweepCandidate::target_max)
+            .fold(f64::INFINITY, f64::min);
+        let target_threshold = target_floor + 0.005_f64.max(0.15 * target_floor);
+        let minimum_insertion_loss = self
+            .frontier
+            .iter()
+            .filter(|candidate| candidate.target_max() <= target_threshold)
+            .min_by(|left, right| compare_minimum_insertion_loss(left, right))
+            .ok_or_else(|| Error::new("Rust sweep produced no minimum-loss candidate"))?;
+
+        Ok(vec![
+            minimum_bom.as_result(),
+            balanced.as_result(),
+            minimum_target.as_result(),
+            smith_contour.as_result(),
+            minimum_insertion_loss.as_result(),
+        ])
+    }
+}
+
+fn sweep_problem(problem: &SweepProblem) -> Result<SweepAccumulator, Error> {
     let counts: Vec<usize> = problem.gammas.iter().map(Vec::len).collect();
     let total = counts.iter().try_fold(1usize, |value, count| {
         value
@@ -466,26 +702,59 @@ fn sweep_problem(problem: &SweepProblem) -> Result<Vec<SweepResult>, Error> {
     let workers = thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(1)
-        .min(total.max(1));
-    let chunk = total.div_ceil(workers);
-    let mut results = Vec::with_capacity(total);
+        .min(if counts.is_empty() { 1 } else { counts[0] });
+    let mut suffix_products = vec![1usize; counts.len() + 1];
+    for index in (0..counts.len()).rev() {
+        suffix_products[index] = suffix_products[index + 1]
+            .checked_mul(counts[index])
+            .ok_or_else(|| Error::new("too many BOM combinations"))?;
+    }
+    let mut aggregate = SweepAccumulator::new(problem.return_winners, total, counts.len());
     thread::scope(|scope| -> Result<(), Error> {
         let mut handles = Vec::new();
         for worker in 0..workers {
-            let start = worker * chunk;
-            let stop = (start + chunk).min(total);
-            if start >= stop {
-                continue;
-            }
             let counts = &counts;
+            let suffix_products = &suffix_products;
             handles.push(scope.spawn(move || {
-                (start..stop)
-                    .map(|linear| evaluate_combination(problem, decode_combination(linear, counts)))
-                    .collect::<Vec<_>>()
+                let mut local = SweepAccumulator::new(problem.return_winners, 0, counts.len());
+                if counts.is_empty() {
+                    visit_combinations(
+                        problem,
+                        counts,
+                        suffix_products,
+                        0,
+                        &problem.base_s,
+                        &mut Vec::new(),
+                        0,
+                        &mut local,
+                    );
+                    return local;
+                }
+                for first_candidate in (worker..counts[0]).step_by(workers) {
+                    let first_s = apply_termination(
+                        &problem.base_s,
+                        problem.nports,
+                        problem.nfreq,
+                        problem.nsignals,
+                        &problem.gammas[0][first_candidate],
+                    );
+                    let mut combination = vec![first_candidate];
+                    visit_combinations(
+                        problem,
+                        counts,
+                        suffix_products,
+                        1,
+                        &first_s,
+                        &mut combination,
+                        first_candidate * suffix_products[1],
+                        &mut local,
+                    );
+                }
+                local
             }));
         }
         for handle in handles {
-            results.extend(
+            aggregate.merge(
                 handle
                     .join()
                     .map_err(|_| Error::new("Rust sweep worker panicked"))?,
@@ -493,9 +762,62 @@ fn sweep_problem(problem: &SweepProblem) -> Result<Vec<SweepResult>, Error> {
         }
         Ok(())
     })?;
-    Ok(results)
+    if !problem.return_winners {
+        aggregate.results.sort_by_key(|result| {
+            // The worker traversal is lexicographic, but workers visit every
+            // first-level branch in round-robin order. Recover reference order
+            // for callers that intentionally request all results.
+            result.combination.clone()
+        });
+    }
+    Ok(aggregate)
 }
 
+fn visit_combinations(
+    problem: &SweepProblem,
+    counts: &[usize],
+    suffix_products: &[usize],
+    depth: usize,
+    current_s: &[Complex],
+    combination: &mut Vec<usize>,
+    linear_index: usize,
+    accumulator: &mut SweepAccumulator,
+) {
+    if depth == counts.len() {
+        accumulator.observe(
+            problem,
+            linear_index,
+            combination,
+            compute_metrics(problem, current_s),
+        );
+        return;
+    }
+
+    let current_ports = problem.nports - depth;
+    for candidate in 0..counts[depth] {
+        let next_s = apply_termination(
+            current_s,
+            current_ports,
+            problem.nfreq,
+            problem.nsignals,
+            &problem.gammas[depth][candidate],
+        );
+        combination.push(candidate);
+        visit_combinations(
+            problem,
+            counts,
+            suffix_products,
+            depth + 1,
+            &next_s,
+            combination,
+            linear_index + candidate * suffix_products[depth + 1],
+            accumulator,
+        );
+        combination.pop();
+    }
+}
+
+#[cfg(test)]
 fn decode_combination(mut linear: usize, counts: &[usize]) -> Vec<usize> {
     let mut combination = vec![0usize; counts.len()];
     for index in (0..counts.len()).rev() {
@@ -505,29 +827,93 @@ fn decode_combination(mut linear: usize, counts: &[usize]) -> Vec<usize> {
     combination
 }
 
-fn evaluate_combination(problem: &SweepProblem, combination: Vec<usize>) -> SweepResult {
-    let mut s = problem.base_s.clone();
-    let mut current_ports = problem.nports;
-    for (port, candidate) in combination.iter().copied().enumerate() {
-        s = apply_termination(
-            &s,
-            current_ports,
-            problem.nfreq,
-            problem.nsignals,
-            &problem.gammas[port][candidate],
-        );
-        current_ports -= 1;
+fn compare_sweep_minimum_target(left: &SweepCandidate, right: &SweepCandidate) -> Ordering {
+    left.target_non_ant
+        .total_cmp(&right.target_non_ant)
+        .then_with(|| left.target_ant.total_cmp(&right.target_ant))
+        .then_with(|| left.bom_count.cmp(&right.bom_count))
+        .then_with(|| left.worst_il_db.total_cmp(&right.worst_il_db))
+        .then_with(|| left.linear_index.cmp(&right.linear_index))
+}
+
+fn better_sweep_minimum_target(left: &SweepCandidate, right: &SweepCandidate) -> bool {
+    compare_sweep_minimum_target(left, right) == Ordering::Less
+}
+
+fn compare_minimum_bom(left: &SweepCandidate, right: &SweepCandidate) -> Ordering {
+    left.bom_count
+        .cmp(&right.bom_count)
+        .then_with(|| {
+            (left.target_non_ant + left.target_ant)
+                .total_cmp(&(right.target_non_ant + right.target_ant))
+        })
+        .then_with(|| left.linear_index.cmp(&right.linear_index))
+}
+
+fn compare_sweep_smith_contour(left: &SweepCandidate, right: &SweepCandidate) -> Ordering {
+    left.smith_score()
+        .total_cmp(&right.smith_score())
+        .then_with(|| left.target_max().total_cmp(&right.target_max()))
+        .then_with(|| left.worst_il_db.total_cmp(&right.worst_il_db))
+        .then_with(|| left.bom_count.cmp(&right.bom_count))
+        .then_with(|| left.linear_index.cmp(&right.linear_index))
+}
+
+fn better_sweep_smith_contour(left: &SweepCandidate, right: &SweepCandidate) -> bool {
+    compare_sweep_smith_contour(left, right) == Ordering::Less
+}
+
+fn compare_minimum_insertion_loss(left: &SweepCandidate, right: &SweepCandidate) -> Ordering {
+    left.worst_il_db
+        .total_cmp(&right.worst_il_db)
+        .then_with(|| left.target_max().total_cmp(&right.target_max()))
+        .then_with(|| left.linear_index.cmp(&right.linear_index))
+}
+
+fn balanced_score_sweep(
+    candidate: &SweepCandidate,
+    target_range: (f64, f64),
+    loss_range: (f64, f64),
+) -> f64 {
+    normalize(candidate.target_max(), target_range) + normalize(candidate.worst_il_db, loss_range)
+}
+
+fn dominates(left: &SweepCandidate, right: &SweepCandidate) -> bool {
+    let target_better_or_equal = left.target_max() <= right.target_max();
+    let loss_better_or_equal = left.worst_il_db <= right.worst_il_db;
+    let strict = left.target_max() < right.target_max() || left.worst_il_db < right.worst_il_db;
+    target_better_or_equal && loss_better_or_equal && strict
+}
+
+fn insert_pareto(frontier: &mut Vec<SweepCandidate>, candidate: SweepCandidate) {
+    if frontier
+        .iter()
+        .any(|existing| dominates(existing, &candidate))
+    {
+        return;
     }
-    let (vswr_non_ant, vswr_ant, worst_il_db, target_non_ant, target_ant) =
-        compute_metrics(problem, &s);
-    SweepResult {
-        vswr_non_ant,
-        vswr_ant,
-        worst_il_db,
-        target_non_ant,
-        target_ant,
-        combination,
+    frontier.retain(|existing| !dominates(&candidate, existing));
+    frontier.push(candidate);
+}
+
+fn bom_dominates(left: &SweepCandidate, right: &SweepCandidate) -> bool {
+    let left_sum = left.target_non_ant + left.target_ant;
+    let right_sum = right.target_non_ant + right.target_ant;
+    let target_better_or_equal = left.target_non_ant <= right.target_non_ant;
+    let sum_better_or_equal = left_sum <= right_sum;
+    let strict = left.target_non_ant < right.target_non_ant || left_sum < right_sum;
+    target_better_or_equal && sum_better_or_equal && strict
+}
+
+fn insert_bom_pareto(frontier: &mut Vec<SweepCandidate>, candidate: SweepCandidate) {
+    if frontier
+        .iter()
+        .any(|existing| bom_dominates(existing, &candidate))
+    {
+        return;
     }
+    frontier.retain(|existing| !bom_dominates(&candidate, existing));
+    frontier.push(candidate);
 }
 
 fn apply_termination(
@@ -544,15 +930,16 @@ fn apply_termination(
         let s_kk = s[offset + port_k * nports + port_k];
         let load = gamma[frequency];
         let denominator = Complex::new(1.0, 0.0).sub(s_kk.mul(load));
+        let inverse = Complex::new(1.0, 0.0).div(denominator);
         for i in 0..reduced_ports {
             let source_i = if i >= port_k { i + 1 } else { i };
+            let factor = s[offset + source_i * nports + port_k]
+                .mul(load)
+                .mul(inverse);
             for j in 0..reduced_ports {
                 let source_j = if j >= port_k { j + 1 } else { j };
                 let s_ij = s[offset + source_i * nports + source_j];
-                let update = s[offset + source_i * nports + port_k]
-                    .mul(load)
-                    .mul(s[offset + port_k * nports + source_j])
-                    .div(denominator);
+                let update = factor.mul(s[offset + port_k * nports + source_j]);
                 result[frequency * reduced_ports * reduced_ports + i * reduced_ports + j] =
                     s_ij.add(update);
             }
@@ -575,8 +962,9 @@ fn compute_metrics(problem: &SweepProblem, s: &[Complex]) -> (f64, f64, f64, f64
         let (start, stop) = problem.eval_ranges[port];
         for frequency in start..=stop {
             let sii = s[frequency * n * n + port * n + port];
-            invalid_passivity |= !sii.norm().is_finite() || sii.norm() > PASSIVITY_LIMIT;
-            vswr_non_ant = vswr_non_ant.max(vswr(sii.norm()));
+            let sii_magnitude = sii.norm();
+            invalid_passivity |= !sii_magnitude.is_finite() || sii_magnitude > PASSIVITY_LIMIT;
+            vswr_non_ant = vswr_non_ant.max(vswr(sii_magnitude));
             let target = problem.target_gamma[port * problem.nfreq + frequency];
             target_non_ant = target_non_ant.max(finite_penalty(sii.sub(target).norm()));
             let raw_transmission = s[frequency * n * n + antenna * n + port].norm();
@@ -589,8 +977,9 @@ fn compute_metrics(problem: &SweepProblem, s: &[Complex]) -> (f64, f64, f64, f64
     let (start, stop) = problem.eval_ranges[antenna];
     for frequency in start..=stop {
         let saa = s[frequency * n * n + antenna * n + antenna];
-        invalid_passivity |= !saa.norm().is_finite() || saa.norm() > PASSIVITY_LIMIT;
-        vswr_ant = vswr_ant.max(vswr(saa.norm()));
+        let saa_magnitude = saa.norm();
+        invalid_passivity |= !saa_magnitude.is_finite() || saa_magnitude > PASSIVITY_LIMIT;
+        vswr_ant = vswr_ant.max(vswr(saa_magnitude));
         let target = problem.target_gamma[antenna * problem.nfreq + frequency];
         target_ant = target_ant.max(finite_penalty(saa.sub(target).norm()));
     }

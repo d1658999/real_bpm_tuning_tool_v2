@@ -55,9 +55,13 @@ bpm-ranking-optimizer sweep <input.bin> <output.bin>
 ```
 
 The private, versioned little-endian bridge format carries the base complex
-S-matrix, per-port termination gamma matrices, frequency evaluation ranges, and
-target gamma matrix. The result contains metrics and candidate indexes for the
-complete Cartesian product. It is intentionally an internal interface; use
+S-matrix, per-port termination gamma matrices, component-count metadata,
+frequency evaluation ranges, and target gamma matrix. The compatibility mode
+returns metrics and candidate indexes for the complete Cartesian product. Fleet
+optimization uses winner mode: it still evaluates every combination exactly
+once, but shares prefix S-matrices and retains only the five exact strategy
+winners. This keeps memory bounded by the ranking frontiers instead of the
+number of combinations. It is intentionally an internal interface; use
 `bpm_tuner.rust_bridge.RustOptimizer.sweep` from Python.
 
 All ties are resolved by documented secondary metrics and finally by lexical
