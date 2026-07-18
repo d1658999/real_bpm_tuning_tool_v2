@@ -13,6 +13,8 @@ from typing import Callable
 
 import numpy as np
 
+from .runtime_paths import bundled_resource
+
 
 class RustKernelError(RuntimeError):
     pass
@@ -62,11 +64,23 @@ class RustOptimizer:
     def __init__(self, root: str | Path):
         self.root = Path(root).resolve()
         suffix = ".exe" if sys.platform == "win32" else ""
+        relative_executable = (
+            Path("rust_optimizer") / "target" / "release" / f"bpm-ranking-optimizer{suffix}"
+        )
         self.executable = (
-            self.root / "rust_optimizer" / "target" / "release" / f"bpm-ranking-optimizer{suffix}"
+            bundled_resource(relative_executable)
+            if getattr(sys, "frozen", False)
+            else self.root / relative_executable
         )
 
     def ensure_built(self) -> Path:
+        if getattr(sys, "frozen", False):
+            if self.executable.is_file():
+                return self.executable
+            raise RustKernelError(
+                "The packaged Rust optimizer is missing. Rebuild BPMTuningTool.exe with "
+                "build_one_exe.bat."
+            )
         sources = [
             self.root / "rust_optimizer" / "Cargo.toml",
             *sorted((self.root / "rust_optimizer" / "src").glob("*.rs")),

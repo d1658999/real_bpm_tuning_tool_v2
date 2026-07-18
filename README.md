@@ -13,6 +13,25 @@ cargo build --release --manifest-path rust_optimizer\Cargo.toml
 
 The Rust build is also started automatically on the first optimization if Cargo is available.
 
+## Build one Windows EXE
+
+Run the batch file from Explorer or PowerShell:
+
+```powershell
+.\build_one_exe.bat
+```
+
+The script uses (or creates) `.venv`, installs the project and PyInstaller, builds the release Rust optimizer, and creates this deployable layout:
+
+```text
+dist\
+  BPMTuningTool.exe
+  Capacitors_BOM\
+  Inductors_BOM\
+```
+
+The measured BOM folders are deliberately not embedded in the EXE. At startup, `BPMTuningTool.exe` automatically loads `Capacitors_BOM` and `Inductors_BOM` from the folder containing the EXE. Keep those two folder names unchanged and move/copy the EXE and both folders together. BOM files can be updated without rebuilding the EXE. The Rust optimizer is embedded in the single executable, so the target PC does not need Python, PyQt, Cargo, or Rust installed.
+
 ## Start the GUI
 
 ```powershell
