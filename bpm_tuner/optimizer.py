@@ -107,6 +107,10 @@ class FleetOptimizer:
             self._options(
                 config.networks[network_index].ports[port_index],
                 config.candidates_per_type,
+                inductor_min_nh=config.inductor_min_nh,
+                inductor_max_nh=config.inductor_max_nh,
+                capacitor_min_pf=config.capacitor_min_pf,
+                capacitor_max_pf=config.capacitor_max_pf,
             )
             for network_index, port_index in slots
         ]
@@ -133,7 +137,41 @@ class FleetOptimizer:
             )
         ]
 
-    def _options(self, port: PortConfig, candidate_count: int) -> list[BOMComponent | None]:
+    def _options(
+        self,
+        port: PortConfig,
+        candidate_count: int,
+        *,
+        inductor_min_nh: float | None = None,
+        inductor_max_nh: float | None = None,
+        capacitor_min_pf: float | None = None,
+        capacitor_max_pf: float | None = None,
+    ) -> list[BOMComponent | None]:
+        def ranged(
+            kind: str,
+            minimum: float | None,
+            maximum: float | None,
+            unit: str,
+        ) -> list[BOMComponent]:
+            choices = self.bom[kind]
+            if minimum is not None:
+                choices = [component for component in choices if component.value >= minimum]
+            if maximum is not None:
+                choices = [component for component in choices if component.value <= maximum]
+            if not choices:
+                lower = "catalog minimum" if minimum is None else f"{minimum:g}"
+                upper = "catalog maximum" if maximum is None else f"{maximum:g}"
+                description = (
+                    "the measured BOM catalog"
+                    if minimum is None and maximum is None
+                    else f"the inclusive {lower}-{upper} {unit} optimization range"
+                )
+                raise ValueError(
+                    f"No measured {kind} parts are available in {description}. "
+                    f"Change the {kind} range before running optimization."
+                )
+            return choices
+
         result: list[BOMComponent | None] = []
         if port.mode == ConnectionType.OPEN_INDUCTOR_CAPACITOR:
             result.append(None)
@@ -146,13 +184,15 @@ class FleetOptimizer:
             ConnectionType.INDUCTOR_CAPACITOR,
             ConnectionType.OPEN_INDUCTOR_CAPACITOR,
         ):
-            result.extend(evenly_spaced(self.bom["capacitor"], candidate_count))
+            capacitors = ranged("capacitor", capacitor_min_pf, capacitor_max_pf, "pF")
+            result.extend(evenly_spaced(capacitors, candidate_count))
         if port.mode in (
             ConnectionType.INDUCTOR,
             ConnectionType.INDUCTOR_CAPACITOR,
             ConnectionType.OPEN_INDUCTOR_CAPACITOR,
         ):
-            result.extend(evenly_spaced(self.bom["inductor"], candidate_count))
+            inductors = ranged("inductor", inductor_min_nh, inductor_max_nh, "nH")
+            result.extend(evenly_spaced(inductors, candidate_count))
         if not result:
             raise ValueError(f"No real BOM candidates are available for {port.mode.value}.")
         return result
@@ -397,6 +437,10 @@ class FleetOptimizer:
             self._options(
                 config.networks[network_index].ports[port_index],
                 config.candidates_per_type,
+                inductor_min_nh=config.inductor_min_nh,
+                inductor_max_nh=config.inductor_max_nh,
+                capacitor_min_pf=config.capacitor_min_pf,
+                capacitor_max_pf=config.capacitor_max_pf,
             )
             for network_index, port_index in slots
         ]

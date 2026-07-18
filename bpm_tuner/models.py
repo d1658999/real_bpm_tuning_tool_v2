@@ -86,6 +86,12 @@ class ProjectConfig:
     # parts per type keeps the supplied six-slot project at 15,625 combinations.
     candidates_per_type: int = 2
     optimization_passes: int = 2
+    # Optional inclusive real-BOM value windows. ``None`` preserves the full
+    # measured catalog for configurations saved before range controls existed.
+    inductor_min_nh: float | None = None
+    inductor_max_nh: float | None = None
+    capacitor_min_pf: float | None = None
+    capacitor_max_pf: float | None = None
 
     def validate(self, *, allow_unselected: bool = False) -> None:
         if not self.networks:
@@ -98,6 +104,24 @@ class ProjectConfig:
             raise ConfigError("Frequency points must be between 11 and 5001.")
         if self.candidates_per_type < 1 or self.optimization_passes < 1:
             raise ConfigError("Optimization candidate and pass counts must be positive.")
+        for label, minimum, maximum, unit in (
+            ("Inductor", self.inductor_min_nh, self.inductor_max_nh, "nH"),
+            ("Capacitor", self.capacitor_min_pf, self.capacitor_max_pf, "pF"),
+        ):
+            if (minimum is None) != (maximum is None):
+                raise ConfigError(
+                    f"Set both the {label.lower()} minimum and maximum, or leave both automatic."
+                )
+            if minimum is None:
+                continue
+            if not math.isfinite(minimum) or not math.isfinite(maximum):
+                raise ConfigError(f"{label} optimization range must use finite values in {unit}.")
+            if minimum <= 0 or maximum <= 0:
+                raise ConfigError(f"{label} optimization range values must be greater than zero {unit}.")
+            if minimum > maximum:
+                raise ConfigError(
+                    f"{label} optimization range minimum must not exceed its maximum."
+                )
         if self.smith_target_enabled:
             target_values = (
                 self.smith_target_resistance_ohm,

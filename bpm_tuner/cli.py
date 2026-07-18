@@ -19,6 +19,20 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--cascade", action="store_true", help="run only the configured cascade")
     result.add_argument("--candidates", type=int, default=None, help="real BOM candidates sampled per component type")
     result.add_argument(
+        "--inductor-range",
+        type=float,
+        nargs=2,
+        metavar=("MIN_NH", "MAX_NH"),
+        help="inclusive inductor range in nH, applied before BOM sampling",
+    )
+    result.add_argument(
+        "--capacitor-range",
+        type=float,
+        nargs=2,
+        metavar=("MIN_PF", "MAX_PF"),
+        help="inclusive capacitor range in pF, applied before BOM sampling",
+    )
+    result.add_argument(
         "--passes",
         type=int,
         default=None,
@@ -37,6 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     config = ProjectConfig.load(args.config) if args.config else default_fleet_config(root)
     if args.candidates is not None:
         config.candidates_per_type = args.candidates
+    if args.inductor_range is not None:
+        config.inductor_min_nh, config.inductor_max_nh = args.inductor_range
+    if args.capacitor_range is not None:
+        config.capacitor_min_pf, config.capacitor_max_pf = args.capacitor_range
     if args.passes is not None:
         config.optimization_passes = args.passes
     if args.cascade:
